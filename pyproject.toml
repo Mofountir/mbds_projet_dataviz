@@ -1,0 +1,33 @@
+[project]
+name = "mbds_projet_dataviz"
+version = "0.1.0"
+description = "Projet MBDS de visualisation des donnees e-commerce Olist"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "streamlit>=1.45,<2",
+    "pandas>=2.2.3,<3",
+    "plotly>=6,<7",
+    "pyarrow>=19",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6",
+    "ruff>=0.11",
+]
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mbds_projet_dataviz"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

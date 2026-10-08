@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: mbds-projet-dataviz
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./docker/Dockerfile.prod
+    dockerContext: .
+    autoDeployTrigger: off
+    healthCheckPath: /_stcore/health

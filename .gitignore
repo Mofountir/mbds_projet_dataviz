@@ -1,0 +1,28 @@
+# Python et outils
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Données : conserver uniquement les marqueurs de dossiers
+data/01_raw/*
+!data/01_raw/.gitkeep
+data/02_intermediate/*
+!data/02_intermediate/.gitkeep
+
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+.kaggle/
+kaggle.json
+
+# Système
+.DS_Store
+Thumbs.db
