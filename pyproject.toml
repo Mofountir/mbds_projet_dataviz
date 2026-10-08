@@ -14,6 +14,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel>=6",
+    "pre-commit>=4.6,<5",
     "ruff>=0.11",
 ]
 
@@ -27,6 +28,7 @@ packages = ["src/mbds_projet_dataviz"]
 [tool.ruff]
 target-version = "py313"
 line-length = 88
+extend-exclude = ["notebooks"]
 
 
 [tool.ruff.lint]

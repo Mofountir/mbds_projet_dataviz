@@ -7,7 +7,7 @@
   "updateRemoteUserUID": true,
   "overrideCommand": true,
   "shutdownAction": "stopCompose",
-  "postStartCommand": "uv sync --locked",
+  "postStartCommand": "uv sync --locked --dev && uv run --no-sync pre-commit install --hook-type pre-commit --config githooks/pre-commit.yaml && uv run --no-sync pre-commit install --hook-type pre-push --config githooks/pre-push.yaml",
   "customizations": {
     "vscode": {
       "extensions": [

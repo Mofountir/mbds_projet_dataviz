@@ -1,0 +1,26 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check-all
+        name: Ruff lint (whole project)
+        entry: uv run --locked ruff check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: ruff-format-all
+        name: Ruff format (whole project)
+        entry: uv run --locked ruff format --check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: project-imports
+        name: Check application imports
+        entry: uv run --locked python -c 'import mbds_projet_dataviz; import streamlit'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
