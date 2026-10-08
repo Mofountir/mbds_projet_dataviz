@@ -44,6 +44,6 @@ Strategie de visualisation : [API Streamlit Charts](https://docs.streamlit.io/de
 
 ## Règles de contribution
 
-1. Créer une branche `feature/<domaine>` depuis `main`. Faire les commits et les pushs depuis le terminal du conteneur. Coordonner les modifications de `main.py`, `pages/about.py` et `shared/` avec l'équipe.
+1. Créer une branche `<num_issue>_<branch_name>` depuis `main`. Faire les commits et les pushs depuis le terminal du conteneur. Coordonner les modifications de `main.py`, `pages/about.py` et `shared/` avec l'équipe.
 2. Avant la PR, lancer `uv run ruff check .` et `uv run ruff format --check .`. Si besoin : `uv run ruff check . --fix` puis `uv run ruff format .`.
 3. Ouvrir une PR vers `main` sur github: indiquer les données choisies, les transformations et les visualisations ; attendre la CI et une revue d'un autre membre avant le GO pour merger.
