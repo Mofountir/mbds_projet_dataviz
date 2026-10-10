@@ -6,6 +6,7 @@ aucune commande n'est comptée deux fois.
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 # Grandes régions de l'IBGE.
@@ -39,6 +40,22 @@ STATE_REGION = {
     "SC": "Sul",
 }
 REGION_ORDER = ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
+REFERENCE_REGION = "Sudeste"
+FOCUS_REGIONS = ["Norte", "Nordeste", "Sudeste"]
+
+# Tranches de distance client - vendeur principal (km).
+DISTANCE_BINS = [0, 250, 500, 1000, 1500, 2000, 4000]
+DISTANCE_LABELS = [
+    "< 250 km",
+    "250-500 km",
+    "500-1 000 km",
+    "1 000-1 500 km",
+    "1 500-2 000 km",
+    "> 2 000 km",
+]
+# En dessous, une médiane par tranche est trop instable pour être affichée.
+MIN_ORDERS_PER_CELL = 30
+Z_95 = 1.96
 
 
 @dataclass(frozen=True)
@@ -174,3 +191,149 @@ def within_bounds(
 def seller_share_by_state(sellers: pd.DataFrame) -> pd.Series:
     """Part (%) des vendeurs inscrits dans chaque État."""
     return sellers["seller_state"].value_counts(normalize=True).mul(100)
+
+
+def median_interval(values: np.ndarray) -> tuple[float, float, float]:
+    """Médiane et intervalle de confiance à 95 % exact (statistiques d'ordre)."""
+    values = np.sort(values[~np.isnan(values)])
+    n = len(values)
+    half_width = Z_95 * np.sqrt(n) / 2
+    low = int(max(np.floor(n / 2 - half_width), 0))
+    high = int(min(np.ceil(n / 2 + half_width), n - 1))
+    return float(np.median(values)), float(values[low]), float(values[high])
+
+
+def wilson_interval(successes: float, n: int) -> tuple[float, float, float]:
+    """Proportion (%) et intervalle de Wilson à 95 %."""
+    p = successes / n
+    denom = 1 + Z_95**2 / n
+    center = (p + Z_95**2 / (2 * n)) / denom
+    half = Z_95 * np.sqrt(p * (1 - p) / n + Z_95**2 / (4 * n**2)) / denom
+    return 100 * p, 100 * (center - half), 100 * (center + half)
+
+
+def region_intervals(orders: pd.DataFrame) -> pd.DataFrame:
+    """Délai médian et taux de retard par région, avec IC à 95 %."""
+    rows = []
+    regions = orders["customer_state"].map(STATE_REGION)
+    for region in REGION_ORDER:
+        group = orders[regions == region]
+        if group.empty:
+            continue
+        days, days_low, days_high = median_interval(
+            group["delivery_days"].to_numpy(float)
+        )
+        late = group["is_late"].astype(float)
+        rate, rate_low, rate_high = wilson_interval(late.sum(), late.count())
+        rows.append(
+            {
+                "region": region,
+                "orders": len(group),
+                "median_days": days,
+                "median_days_low": days_low,
+                "median_days_high": days_high,
+                "late_rate": rate,
+                "late_rate_low": rate_low,
+                "late_rate_high": rate_high,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def with_distance_band(orders: pd.DataFrame) -> pd.DataFrame:
+    """Commandes géolocalisées, avec région et tranche de distance."""
+    located = orders.dropna(subset=["distance_km"])
+    return located.assign(
+        region=located["customer_state"].map(STATE_REGION),
+        distance_band=pd.cut(
+            located["distance_km"],
+            DISTANCE_BINS,
+            labels=DISTANCE_LABELS,
+            include_lowest=True,
+        ),
+    )
+
+
+def delivery_by_distance(orders: pd.DataFrame) -> pd.DataFrame:
+    """Délai médian par région et tranche de distance (cellules >= seuil)."""
+    banded = with_distance_band(orders)
+    out = (
+        banded[banded["region"].isin(FOCUS_REGIONS)]
+        .groupby(["region", "distance_band"], observed=True)
+        .agg(
+            orders=("order_id", "count"),
+            median_days=("delivery_days", "median"),
+        )
+        .reset_index()
+    )
+    return out[out["orders"] >= MIN_ORDERS_PER_CELL].reset_index(drop=True)
+
+
+def _ols(design: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Coefficients et erreurs types classiques d'une régression linéaire."""
+    coef, *_ = np.linalg.lstsq(design, y, rcond=None)
+    residuals = y - design @ coef
+    dof = len(y) - design.shape[1]
+    sigma2 = residuals @ residuals / dof
+    cov = sigma2 * np.linalg.pinv(design.T @ design)
+    return coef, np.sqrt(np.diag(cov))
+
+
+def region_gaps(orders: pd.DataFrame) -> pd.DataFrame:
+    """Écart de chaque région au Sudeste, brut puis à distance égale.
+
+    Régression linéaire de l'indicateur sur des indicatrices de région, sans puis
+    avec des indicatrices de tranche de distance. La part expliquée par la
+    distance est ``1 - écart à distance égale / écart brut``.
+    """
+    banded = with_distance_band(orders)
+    others = [r for r in REGION_ORDER if r != REFERENCE_REGION]
+    others = [r for r in others if (banded["region"] == r).any()]
+    region_cols = np.column_stack(
+        [(banded["region"] == r).to_numpy(float) for r in others]
+    )
+    intercept = np.ones((len(banded), 1))
+    bands = pd.get_dummies(banded["distance_band"], drop_first=True).to_numpy(float)
+    raw_design = np.hstack([intercept, region_cols])
+    controlled_design = np.hstack([raw_design, bands])
+
+    rows = []
+    for indicator, values in [
+        ("median_days", banded["delivery_days"].to_numpy(float)),
+        ("late_rate", banded["is_late"].astype(float).to_numpy() * 100),
+    ]:
+        raw, _ = _ols(raw_design, values)
+        controlled, se = _ols(controlled_design, values)
+        for i, region in enumerate(others, start=1):
+            rows.append(
+                {
+                    "indicator": indicator,
+                    "region": region,
+                    "orders": int(region_cols[:, i - 1].sum()),
+                    "gap_raw": raw[i],
+                    "gap_same_distance": controlled[i],
+                    "gap_same_distance_low": controlled[i] - Z_95 * se[i],
+                    "gap_same_distance_high": controlled[i] + Z_95 * se[i],
+                    "share_explained": 100 * (1 - controlled[i] / raw[i]),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def local_vs_distant(orders: pd.DataFrame) -> pd.DataFrame:
+    """Délai médian selon que le vendeur principal est dans l'État du client."""
+    with_region = orders.assign(
+        region=orders["customer_state"].map(STATE_REGION),
+        seller=np.where(
+            orders["main_seller_state"] == orders["customer_state"],
+            "Vendeur du même État",
+            "Vendeur d'un autre État",
+        ),
+    )
+    out = (
+        with_region.groupby(["region", "seller"], observed=True)
+        .agg(orders=("order_id", "count"), median_days=("delivery_days", "median"))
+        .reset_index()
+    )
+    out["region"] = pd.Categorical(out["region"], REGION_ORDER, ordered=True)
+    return out.sort_values(["region", "seller"]).reset_index(drop=True)

@@ -27,6 +27,8 @@ ORDER_COLUMNS = [
     "customer_lng",
     "main_seller_state",
     "items_value",
+    "freight_value",
+    "distance_km",
     "delivery_days",
     "is_late",
     "review_score",

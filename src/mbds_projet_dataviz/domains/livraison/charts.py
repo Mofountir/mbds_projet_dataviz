@@ -7,7 +7,12 @@ les valeurs ; orange réservé aux vendeurs sur la carte de détail.
 import pandas as pd
 import plotly.graph_objects as go
 
-from mbds_projet_dataviz.domains.livraison.transforms import METRICS, format_number
+from mbds_projet_dataviz.domains.livraison.transforms import (
+    DISTANCE_LABELS,
+    FOCUS_REGIONS,
+    METRICS,
+    format_number,
+)
 
 BLUE_RAMP = [
     "#cde2fb",
@@ -22,6 +27,9 @@ BLUE_SCALE = [[i / (len(BLUE_RAMP) - 1), c] for i, c in enumerate(BLUE_RAMP)]
 SERIES_BLUE = "#2a78d6"
 SELLER_ORANGE = "#eb6834"
 OUTLINE_GRAY = "#c3c2b7"
+LIGHT_BLUE = "#9ec5f4"
+# Couleurs catégorielles validées (ordre fixe) pour les régions comparées.
+REGION_COLORS = dict(zip(FOCUS_REGIONS, ["#2a78d6", "#eb6834", "#1baf7a"]))
 
 STATE_KEY = "properties.sigla"
 # Plotly : 1er caractère = séparateur décimal, 2e = séparateur de milliers.
@@ -178,6 +186,147 @@ def state_detail_map(
         height=520,
         margin=dict(l=0, r=0, t=10, b=0),
         geo=dict(bgcolor="rgba(0,0,0,0)"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
+        separators=FR_SEPARATORS,
+    )
+    return fig
+
+
+def region_intervals_chart(intervals: pd.DataFrame, metric_key: str) -> go.Figure:
+    """Valeur par région (point) et intervalle de confiance à 95 % (barre)."""
+    metric = METRICS[metric_key]
+    value = intervals[metric_key]
+    low = intervals[f"{metric_key}_low"]
+    high = intervals[f"{metric_key}_high"]
+    fig = go.Figure(
+        go.Scatter(
+            x=value,
+            y=intervals["region"],
+            mode="markers+text",
+            marker=dict(size=10, color=SERIES_BLUE),
+            error_x=dict(
+                type="data",
+                array=high - value,
+                arrayminus=value - low,
+                color=SERIES_BLUE,
+                thickness=2,
+                width=6,
+            ),
+            text=[format_number(v, metric.fmt) for v in value],
+            textposition="top center",
+            customdata=pd.concat([low, high, intervals["orders"]], axis=1).to_numpy(),
+            hovertemplate=(
+                f"<b>%{{y}}</b><br>{metric.label} : "
+                + _hover_value(metric_key, "x")
+                + "<br>IC 95 % : %{customdata[0]:.1f} - %{customdata[1]:.1f}"
+                + "<br>Commandes : %{customdata[2]:,}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        height=280,
+        margin=dict(l=0, r=10, t=10, b=0),
+        xaxis=dict(title=_value_label(metric_key), zeroline=False),
+        yaxis=dict(autorange="reversed", title=None),
+        separators=FR_SEPARATORS,
+    )
+    return fig
+
+
+def delivery_by_distance_chart(cells: pd.DataFrame) -> go.Figure:
+    """Délai médian par tranche de distance : une ligne par région comparée."""
+    fig = go.Figure()
+    for region in FOCUS_REGIONS:
+        line = cells[cells["region"] == region]
+        if line.empty:
+            continue
+        color = REGION_COLORS[region]
+        fig.add_trace(
+            go.Scatter(
+                name=region,
+                x=line["distance_band"].astype(str),
+                y=line["median_days"],
+                mode="lines+markers",
+                line=dict(color=color, width=2),
+                marker=dict(size=8, color=color, line=dict(color="white", width=2)),
+                customdata=line[["orders"]],
+                hovertemplate=(
+                    f"<b>{region}</b> · %{{x}}<br>Délai médian : %{{y:.1f}} jours"
+                    "<br>Commandes : %{customdata[0]:,}<extra></extra>"
+                ),
+            )
+        )
+        last = line.iloc[-1]
+        fig.add_annotation(
+            x=str(last["distance_band"]),
+            y=last["median_days"],
+            text=region,
+            showarrow=False,
+            xanchor="left",
+            xshift=10,
+            font=dict(size=12),
+        )
+    fig.update_layout(
+        height=380,
+        margin=dict(l=0, r=80, t=10, b=0),
+        xaxis=dict(
+            title="Distance client - vendeur principal",
+            categoryorder="array",
+            categoryarray=DISTANCE_LABELS,
+        ),
+        yaxis=dict(title="Délai médian de livraison (jours)", rangemode="tozero"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
+        hovermode="closest",
+        separators=FR_SEPARATORS,
+    )
+    return fig
+
+
+def region_gaps_chart(gaps: pd.DataFrame, unit: str) -> go.Figure:
+    """Écart au Sudeste : brut, puis à distance égale (IC à 95 % au survol)."""
+    regions = gaps["region"]
+    fig = go.Figure(
+        [
+            go.Bar(
+                name="Écart brut",
+                y=regions,
+                x=gaps["gap_raw"],
+                orientation="h",
+                marker=dict(color=LIGHT_BLUE, cornerradius=4),
+                text=[format_number(v, "{:+.1f}") for v in gaps["gap_raw"]],
+                textposition="outside",
+                cliponaxis=False,
+                hovertemplate="<b>%{y}</b><br>Écart brut : %{x:+.1f} "
+                + unit
+                + "<extra></extra>",
+            ),
+            go.Bar(
+                name="Écart à distance égale",
+                y=regions,
+                x=gaps["gap_same_distance"],
+                orientation="h",
+                marker=dict(color=SERIES_BLUE, cornerradius=4),
+                customdata=gaps[
+                    ["gap_same_distance_low", "gap_same_distance_high"]
+                ].to_numpy(),
+                text=[format_number(v, "{:+.1f}") for v in gaps["gap_same_distance"]],
+                textposition="outside",
+                cliponaxis=False,
+                hovertemplate="<b>%{y}</b><br>Écart à distance égale : %{x:+.1f} "
+                + unit
+                + "<br>IC 95 % : %{customdata[0]:+.1f} à %{customdata[1]:+.1f}"
+                + "<extra></extra>",
+            ),
+        ]
+    )
+    fig.update_layout(
+        barmode="group",
+        bargap=0.3,
+        bargroupgap=0.1,
+        height=320,
+        margin=dict(l=0, r=50, t=10, b=0),
+        xaxis=dict(title=f"Écart au Sudeste ({unit})", zeroline=True),
+        yaxis=dict(autorange="reversed", title=None),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
         separators=FR_SEPARATORS,
     )

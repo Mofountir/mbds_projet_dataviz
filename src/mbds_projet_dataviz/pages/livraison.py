@@ -157,7 +157,8 @@ st.caption(
     f"{fmt('late_rate', state_row['late_rate'])} de retards, "
     f"{fmt('local_seller_rate', state_row['local_seller_rate'])} des commandes "
     "servies par un vendeur du même État, "
-    f"{format_number(len(state_sellers))} vendeurs inscrits. Taille des bulles = commandes, couleur = indicateur choisi."
+    f"{format_number(len(state_sellers))} vendeurs inscrits. "
+    "Taille des bulles = commandes, couleur = indicateur choisi."
 )
 bounds = transforms.state_bounds(geojson, state)
 map_cities = transforms.within_bounds(cities, bounds, "lat", "lng")
@@ -195,40 +196,184 @@ with detail_table:
         },
     )
 
-st.subheader("Réponse")
-by_region = regions.set_index(regions["region"].astype(str))
-compared = [r for r in ("Norte", "Nordeste", "Sudeste") if r in by_region.index]
-if len(compared) < 3:
-    st.info("La période choisie ne contient pas les trois régions à comparer.")
-else:
-    north, northeast, southeast = (by_region.loc[r] for r in compared)
-    slower = all(
-        r["median_days"] > southeast["median_days"] for r in (north, northeast)
+
+st.subheader("Robustesse : écart réel, et part due à la distance")
+st.markdown(
+    "Deux questions distinctes : l'écart entre régions est-il statistiquement "
+    "solide, et s'explique-t-il par la distance aux vendeurs ?"
+)
+intervals = transforms.region_intervals(period_orders)
+ci_days, ci_late = st.columns(2)
+with ci_days:
+    st.markdown("**Délai médian par région, IC à 95 %**")
+    st.plotly_chart(
+        charts.region_intervals_chart(intervals, "median_days"), width="stretch"
     )
-    later = all(r["late_rate"] > southeast["late_rate"] for r in (north, northeast))
-    if slower and later:
-        verdict = "**Hypothèse confirmée** sur cette période"
-    elif slower or later:
-        verdict = "**Hypothèse partiellement confirmée** sur cette période"
-    else:
-        verdict = "**Hypothèse rejetée** sur cette période"
-    st.markdown(
-        f"{verdict} : délai médian de {fmt('median_days', north['median_days'])} "
-        f"dans le Norte et {fmt('median_days', northeast['median_days'])} dans le "
-        f"Nordeste, contre {fmt('median_days', southeast['median_days'])} dans le "
-        f"Sudeste ; taux de retard de {fmt('late_rate', north['late_rate'])}, "
-        f"{fmt('late_rate', northeast['late_rate'])} et "
-        f"{fmt('late_rate', southeast['late_rate'])}. Seules "
-        f"{fmt('local_seller_rate', north['local_seller_rate'])} des commandes du "
-        f"Norte et {fmt('local_seller_rate', northeast['local_seller_rate'])} de "
-        "celles du Nordeste sont servies par un vendeur du même État, contre "
-        f"{fmt('local_seller_rate', southeast['local_seller_rate'])} dans le Sudeste."
+with ci_late:
+    st.markdown("**Taux de retard par région, IC à 95 %**")
+    st.plotly_chart(
+        charts.region_intervals_chart(intervals, "late_rate"), width="stretch"
+    )
+st.caption(
+    "Barres : intervalle de confiance à 95 % (exact pour la médiane, Wilson pour "
+    "le taux). Deux régions dont les intervalles ne se chevauchent pas diffèrent "
+    "nettement."
+)
+
+st.markdown("**À distance égale, le Norte et le Nordeste restent-ils plus lents ?**")
+st.plotly_chart(
+    charts.delivery_by_distance_chart(transforms.delivery_by_distance(period_orders)),
+    width="stretch",
+)
+st.caption(
+    "Distance à vol d'oiseau entre le client et le vendeur de l'article le plus "
+    f"cher. Tranches de moins de {transforms.MIN_ORDERS_PER_CELL} commandes "
+    "masquées. Si les lignes se superposaient, la distance suffirait à expliquer "
+    "l'écart."
+)
+
+gaps = transforms.region_gaps(period_orders)
+days_gaps = gaps[gaps["indicator"] == "median_days"]
+late_gaps = gaps[gaps["indicator"] == "late_rate"]
+gap_days_col, gap_late_col = st.columns(2)
+with gap_days_col:
+    st.markdown("**Écart de délai au Sudeste, brut et à distance égale**")
+    st.plotly_chart(charts.region_gaps_chart(days_gaps, "jours"), width="stretch")
+with gap_late_col:
+    st.markdown("**Écart de taux de retard au Sudeste, brut et à distance égale**")
+    st.plotly_chart(charts.region_gaps_chart(late_gaps, "points"), width="stretch")
+st.caption(
+    "Régression linéaire du délai (ou du retard) sur la région, sans puis avec la "
+    "tranche de distance. Écarts en moyenne de jours (ou en points de %), IC à 95 % "
+    "de l'écart à distance égale au survol et dans la réponse ci-dessous."
+)
+
+with st.expander("Vendeur du même État ou d'un autre État"):
+    local = transforms.local_vs_distant(period_orders)
+    st.dataframe(
+        local,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "region": "Région",
+            "seller": "Vendeur principal",
+            "orders": "Commandes",
+            "median_days": st.column_config.NumberColumn(
+                "Délai médian (j)", format="%.1f"
+            ),
+        },
+    )
+    st.caption(
+        "Les effectifs « même État » sont faibles hors Sudeste et Sul : à lire "
+        "comme "
+        "un indice, pas comme une mesure précise."
     )
 
+st.subheader("Réponse")
+by_region = intervals.set_index("region")
+days_by_region = days_gaps.set_index("region")
+late_by_region = late_gaps.set_index("region")
+local_by_region = local.set_index(["region", "seller"])
+compared = ["Norte", "Nordeste"]
+if not all(r in by_region.index and r in days_by_region.index for r in compared) or (
+    transforms.REFERENCE_REGION not in by_region.index
+):
+    st.info("La période choisie ne contient pas les trois régions à comparer.")
+else:
+    ref = by_region.loc[transforms.REFERENCE_REGION]
+    rows = {r: by_region.loc[r] for r in compared}
+    slower = all(
+        row["median_days_low"] > ref["median_days_high"] for row in rows.values()
+    )
+    later = {r: row["late_rate_low"] > ref["late_rate_high"] for r, row in rows.items()}
+    shares = {r: days_by_region.loc[r, "share_explained"] for r in compared}
+
+    if slower:
+        part_one = (
+            "**1. L'écart de délai est réel.** Délai médian de "
+            f"{fmt('median_days', rows['Norte']['median_days'])} dans le Norte et "
+            f"{fmt('median_days', rows['Nordeste']['median_days'])} dans le "
+            f"Nordeste, contre {fmt('median_days', ref['median_days'])} dans le "
+            "Sudeste, avec des intervalles de confiance disjoints."
+        )
+    else:
+        part_one = (
+            "**1. L'écart de délai n'est pas établi** sur cette période : les "
+            "intervalles de confiance se chevauchent."
+        )
+    late_text = [
+        f"{r} : {fmt('late_rate', rows[r]['late_rate'])} "
+        + ("(plus que le Sudeste)" if later[r] else "(pas nettement plus)")
+        for r in compared
+    ]
+    part_one += (
+        f" Taux de retard — {' ; '.join(late_text)}, contre "
+        f"{fmt('late_rate', ref['late_rate'])} dans le Sudeste."
+    )
+
+    def share_level(share: float) -> str:
+        if share >= 70:
+            return "l'essentiel"
+        if share >= 30:
+            return "une partie"
+        return "une faible part"
+
+    def residual_gap(region: str) -> str:
+        gap = days_by_region.loc[region]
+        low = format_number(gap["gap_same_distance_low"], "{:.1f}")
+        high = format_number(gap["gap_same_distance_high"], "{:.1f}")
+        value = format_number(gap["gap_same_distance"], "{:+.1f}")
+        return f"{region} : {value} jours (IC {low} à {high})"
+
+    residual = [residual_gap(r) for r in compared]
+    part_two = (
+        "**2. La distance aux vendeurs en explique "
+        f"{share_level(min(shares.values()))}.** Elle explique "
+        f"{shares['Norte']:.0f} % de l'écart de délai du Norte et "
+        f"{shares['Nordeste']:.0f} % de celui du Nordeste. À distance égale, il "
+        f"reste un écart au Sudeste ({' ; '.join(residual)}) : une autre cause "
+        "(logistique locale, dernier kilomètre, transporteurs) joue aussi."
+    )
+    late_persist = [
+        r for r in compared if late_by_region.loc[r, "gap_same_distance_low"] > 0
+    ]
+    late_vanish = [r for r in compared if r not in late_persist]
+    if late_vanish:
+        part_two += (
+            f" L'excès de retards disparaît à distance égale pour "
+            f"{' et '.join('le ' + r for r in late_vanish)} : la date estimée tient déjà compte de la "
+            "distance."
+        )
+    if late_persist:
+        persist = " et ".join("le " + r for r in late_persist)
+        part_two += f" Il persiste pour {persist}, à distance égale."
+    key_local = ("Nordeste", "Vendeur du même État")
+    key_distant = ("Nordeste", "Vendeur d'un autre État")
+    if key_local in local_by_region.index and key_distant in local_by_region.index:
+        near, far = local_by_region.loc[key_local], local_by_region.loc[key_distant]
+        part_two += (
+            " Indice concordant : dans le Nordeste, les commandes servies par un "
+            f"vendeur local arrivent en {fmt('median_days', near['median_days'])}, "
+            f"contre {fmt('median_days', far['median_days'])} sinon "
+            f"({format_number(near['orders'])} commandes locales seulement)."
+        )
+
+    if slower and min(shares.values()) >= 70:
+        verdict = "Hypothèse confirmée"
+    elif slower and min(shares.values()) >= 30:
+        verdict = "Hypothèse confirmée en partie"
+    elif slower:
+        verdict = "Écart confirmé, mais explication par les vendeurs rejetée"
+    else:
+        verdict = "Hypothèse rejetée"
+    st.markdown(f"#### {verdict} sur cette période")
+    st.markdown(part_one)
+    st.markdown(part_two)
+
 st.markdown(
-    "**Limites.** Les États du Norte comptent peu de commandes : leurs valeurs "
-    "varient fortement d'un mois à l'autre. La date estimée est fixée par Olist et peut "
-    "déjà intégrer la distance : un délai long n'implique donc pas forcément un "
-    "retard. Le lien avec la localisation des vendeurs est une corrélation, pas "
-    "une preuve de cause."
+    "**Limites.** Données observationnelles : les vendeurs choisissent où "
+    "s'installer et les clients chez qui acheter, donc l'analyse montre une "
+    "association, pas une preuve de cause. La distance est à vol d'oiseau et ne "
+    "connaît ni le transporteur ni l'itinéraire. Le Norte compte peu de commandes "
+    "et aucun vendeur local dans les données."
 )

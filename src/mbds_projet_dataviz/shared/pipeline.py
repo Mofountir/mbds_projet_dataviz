@@ -23,11 +23,14 @@ Définitions :
 - ``main_category`` : catégorie de l'article le plus cher de la commande.
 - ``customer_lat`` / ``customer_lng`` : moyenne des points de géolocalisation du
   préfixe de code postal (même règle pour les vendeurs).
+- ``distance_km`` : distance à vol d'oiseau entre le client et le vendeur principal
+  (vide si l'un des deux n'est pas géolocalisé).
 """
 
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from mbds_projet_dataviz.shared.paths import PRIMARY_DIR, RAW_DIR
@@ -35,6 +38,7 @@ from mbds_projet_dataviz.shared.paths import PRIMARY_DIR, RAW_DIR
 UNKNOWN_CATEGORY = "unknown"
 BRAZIL_LAT = (-34.0, 5.5)
 BRAZIL_LNG = (-74.0, -34.0)
+EARTH_RADIUS_KM = 6371.0
 
 RAW_FILES = {
     "orders": "olist_orders_dataset.csv",
@@ -63,6 +67,18 @@ def read_raw(raw_dir: Path) -> dict[str, pd.DataFrame]:
         key: pd.read_csv(raw_dir / name, dtype=ZIP_DTYPE, encoding="utf-8-sig")
         for key, name in RAW_FILES.items()
     }
+
+
+def haversine_km(
+    lat1: pd.Series, lng1: pd.Series, lat2: pd.Series, lng2: pd.Series
+) -> pd.Series:
+    """Distance à vol d'oiseau (km) entre deux points."""
+    lat1, lng1, lat2, lng2 = (np.radians(s) for s in (lat1, lng1, lat2, lng2))
+    a = (
+        np.sin((lat2 - lat1) / 2) ** 2
+        + np.cos(lat1) * np.cos(lat2) * np.sin((lng2 - lng1) / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(a))
 
 
 def zip_centroids(geolocation: pd.DataFrame) -> pd.DataFrame:
@@ -223,10 +239,12 @@ def build_orders(
         )
         .merge(latest_review(raw["reviews"]), on="order_id", how="left", validate="1:1")
         .merge(
-            sellers[["seller_id", "seller_state"]].rename(
+            sellers[["seller_id", "seller_state", "seller_lat", "seller_lng"]].rename(
                 columns={
                     "seller_id": "main_seller_id",
                     "seller_state": "main_seller_state",
+                    "seller_lat": "main_seller_lat",
+                    "seller_lng": "main_seller_lng",
                 }
             ),
             on="main_seller_id",
@@ -243,6 +261,12 @@ def build_orders(
     ).astype("boolean")
     out.loc[delivered.isna(), "is_late"] = pd.NA
     out["purchase_date"] = out["order_purchase_timestamp"].dt.normalize()
+    out["distance_km"] = haversine_km(
+        out["customer_lat"],
+        out["customer_lng"],
+        out["main_seller_lat"],
+        out["main_seller_lng"],
+    )
 
     return out.drop(columns="customer_id")
 
