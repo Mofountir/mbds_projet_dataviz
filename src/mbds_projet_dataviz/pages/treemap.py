@@ -28,7 +28,9 @@ def rate_metric(label: str, value: float, reference: float, help_text: str) -> N
     st.metric(label, f"{number(value, 1)} %", help=help_text)
     text, tone = rate_comparison(value, reference)
     st.markdown(
-        f'<div class="metric-comparison {tone}">{text}</div>', unsafe_allow_html=True
+        f'<div class="metric-comparison {tone}" '
+        f'title="Écart en points de pourcentage par rapport à la moyenne Olist">{text}</div>',
+        unsafe_allow_html=True,
     )
 
 

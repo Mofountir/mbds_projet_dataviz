@@ -15,7 +15,13 @@ def apply_theme() -> None:
 .st-key-treemap_dashboard [data-testid="stMetricValue"] {font-size:1.75rem;}
 .st-key-treemap_dashboard [data-testid="stVerticalBlockBorderWrapper"] {border-radius:14px;}
 .dashboard-context {font-size:.8rem; font-weight:600; letter-spacing:.04em; color:inherit;}
-.metric-comparison {font-size:.82rem; line-height:1.5; margin:.5rem 0 0; color:inherit;}
+.metric-comparison {
+    display:inline-block; font-size:.9rem; font-weight:650; line-height:1.5;
+    margin:.5rem 0 0; padding:.15rem .5rem; border-radius:6px; color:inherit;
+}
+.metric-comparison.higher {color:#c84453; background:rgba(200,68,83,.12);}
+.metric-comparison.lower {color:#16836b; background:rgba(22,131,107,.12);}
+.metric-comparison.neutral {background:rgba(128,128,128,.1);}
 .st-key-treemap_kpis [data-testid="stMetric"],
 .st-key-treemap_detail_metrics [data-testid="stMetric"] {
     padding:0; border:0; box-shadow:none; background:transparent;
