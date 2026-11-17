@@ -7,5 +7,5 @@ services:
     branch: main
     dockerfilePath: ./docker/Dockerfile.prod
     dockerContext: .
-    autoDeployTrigger: off
+    autoDeployTrigger: commit
     healthCheckPath: /_stcore/health
