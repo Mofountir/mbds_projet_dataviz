@@ -16,10 +16,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from mbds_projet_dataviz.shared.colors import BLUE, GRAY, RED
+
 # 3 couleurs nettes pour la note : rouge = mauvaise, gris = moyenne, bleu = bonne.
-RED = "#d03b3b"
-GRAY = "#9c9a92"
-BLUE = "#2a78d6"
 SELECTION = "#eda100"  # bande jaune = plage sélectionnée (brush)
 MUTED = "#b4b2a9"
 AXIS = "#898781"

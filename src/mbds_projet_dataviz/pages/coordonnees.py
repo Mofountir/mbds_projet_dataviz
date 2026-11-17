@@ -16,15 +16,10 @@ PRICE_STEPS = [0, 10, 30, 50, 100, 175, 300, 1000, 5000]
 FREIGHT_STEPS = [0, 5, 10, 15, 20, 27, 50, 100, 300]
 
 
-@st.cache_data
-def _orders():
-    return datasets.load_orders()
-
-
 st.title("Qu'est-ce qui provoque les mauvais avis ?")
 
 try:
-    all_orders = _orders()
+    all_orders = datasets.load_orders()
 except FileNotFoundError as error:
     st.error(str(error))
     st.stop()

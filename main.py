@@ -7,6 +7,8 @@ le fichier existe déjà, il suffit de remplacer son contenu.
 
 import streamlit as st
 
+from mbds_projet_dataviz.shared.theme import apply_theme
+
 PAGES_DIR = "src/mbds_projet_dataviz/pages"
 
 PAGES = {
@@ -42,6 +44,7 @@ PAGES = {
 
 def main():
     st.set_page_config(page_title="Olist DataViz", layout="wide")
+    apply_theme()
     st.navigation(PAGES).run()
 
 

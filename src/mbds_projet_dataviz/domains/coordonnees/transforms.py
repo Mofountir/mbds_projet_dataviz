@@ -18,6 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from mbds_projet_dataviz.domains.coordonnees import datasets
+from mbds_projet_dataviz.shared.transforms import filter_dataset as filter_dataset
 
 # Colonnes numériques comparées sur les axes des coordonnées parallèles.
 NUMERIC_COLUMNS = [
@@ -126,17 +127,6 @@ def build_orders(folder: Path | None = None) -> pd.DataFrame:
         "late",
     ]
     return table[columns].reset_index(drop=True)
-
-
-def filter_dataset(orders: pd.DataFrame, name: str) -> pd.DataFrame:
-    """Garde la période du jeu de données choisi (voir datasets.DATASETS)."""
-    start, end = datasets.DATASETS[name]
-    mask = pd.Series(True, index=orders.index)
-    if start:
-        mask &= orders["purchase_date"] >= start
-    if end:
-        mask &= orders["purchase_date"] < end
-    return orders[mask]
 
 
 def category_summary(orders: pd.DataFrame, min_orders: int = 30) -> pd.DataFrame:
