@@ -16,7 +16,17 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from mbds_projet_dataviz.domains.treemap.labels import category_label
 from mbds_projet_dataviz.shared.colors import BLUE, GRAY, RED
+
+# Même rendu que les graphiques du treemap : fond transparent, bulles claires.
+COMMON_LAYOUT = {
+    "font": {"family": "sans-serif", "size": 12},
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "separators": ", ",
+    "hoverlabel": {"bgcolor": "#ffffff", "font_color": "#213541"},
+}
 
 # 3 couleurs nettes pour la note : rouge = mauvaise, gris = moyenne, bleu = bonne.
 SELECTION = "#eda100"  # bande jaune = plage sélectionnée (brush)
@@ -157,7 +167,9 @@ def _axes_figure(columns: list[str], specs: dict, height: int) -> go.Figure:
         fig.add_shape(
             type="line", x0=j, x1=j, y0=0, y1=1, line={"color": AXIS, "width": 1}
         )
-        labels = spec.get("ticktext") or [f"{t:g}" for t in spec["ticks"]]
+        labels = spec.get("ticktext") or [
+            f"{t:g}".replace(".", ",") for t in spec["ticks"]
+        ]
         for tick, label in zip(_scale(spec["ticks"], spec), labels):
             fig.add_annotation(
                 x=j,
@@ -182,6 +194,7 @@ def _axes_figure(columns: list[str], specs: dict, height: int) -> go.Figure:
         height=height,
         margin={"l": 10, "r": 10, "t": 10, "b": 10},
         hovermode="closest",
+        **COMMON_LAYOUT,
     )
     return fig
 
@@ -232,7 +245,8 @@ def overview_parcoords(
                 legendgroup=name,
                 showlegend=name not in in_legend,
                 hovertemplate=(
-                    f"<b>{row['category'].iat[0]}</b> ({name.split(' (')[0]})<br>"
+                    f"<b>{category_label(row['category'].iat[0])}</b> "
+                    f"({name.split(' (')[0]})<br>"
                     f"{row['orders'].iat[0]} commandes<br>"
                     f"note moyenne {row['review_score'].iat[0]:.2f}<br>"
                     f"livraison moy. {row['delivery_days'].iat[0]:.1f} j<br>"
@@ -263,6 +277,29 @@ def _legend_on_top(fig: go.Figure, names: list[str]) -> None:
         },
         margin={"l": 10, "r": 10, "t": 40, "b": 10},
     )
+
+
+def _order_hover(orders: pd.DataFrame, k: int) -> list[str]:
+    """Texte de l'infobulle d'une commande, répété sur chacun de ses k points."""
+
+    def fmt(value: float, decimals: int = 0) -> str:
+        return f"{value:,.{decimals}f}".replace(",", " ").replace(".", ",")
+
+    texts = [
+        f"<b>{category_label(row.category)}</b><br>"
+        f"Note : {int(row.review_score)} / 5<br>"
+        f"Livraison : {fmt(row.delivery_days, 1)} jours<br>"
+        + (
+            f"Retard : {int(row.delay_days)} jour(s) après la date promise<br>"
+            if row.delay_days > 0
+            else f"À l'heure ({-int(row.delay_days)} jour(s) d'avance)<br>"
+        )
+        + f"Prix : {fmt(row.price, 2)} R$ · Frais : {fmt(row.freight, 2)} R$<br>"
+        f"Poids : {fmt(row.weight_kg, 2)} kg · {int(row.installments)} mensualité(s)"
+        for row in orders.itertuples()
+    ]
+    # Une ligne = k points + 1 trou (NaN) : même découpage que _polylines.
+    return [value for text in texts for value in [text] * k + [""]]
 
 
 def detail_parcoords(
@@ -306,7 +343,8 @@ def detail_parcoords(
                 line={"color": color, "width": 0.8},
                 opacity=0.35 if color == GRAY else 0.6,
                 name=name,
-                hoverinfo="skip",
+                hovertext=_order_hover(group, len(columns)),
+                hovertemplate="%{hovertext}<extra></extra>",
             )
         )
     _legend_on_top(fig, [c[0] for c in DETAIL_CLASSES] + ["Hors sélection (très pâle)"])
@@ -363,9 +401,12 @@ def quintile_small_multiples(
             col=i,
         )
     fig.update_yaxes(title_text="% d'avis 1-2 étoiles", row=1, col=1, ticksuffix=" %")
-    fig.update_yaxes(gridcolor="#e1e0d9", rangemode="tozero")
+    fig.update_yaxes(gridcolor="rgba(137,135,129,0.25)", rangemode="tozero")
     fig.update_xaxes(title_text="du plus petit (Q1) au plus grand (Q5)")
     fig.update_layout(
-        bargap=0.25, height=360, margin={"l": 70, "r": 20, "t": 50, "b": 30}
+        bargap=0.25,
+        height=340,
+        margin={"l": 70, "r": 20, "t": 50, "b": 30},
+        **COMMON_LAYOUT,
     )
     return fig

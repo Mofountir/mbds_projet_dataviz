@@ -137,11 +137,18 @@ Reconstruire les données : `python -m mbds_projet_dataviz.domains.coordonnees.t
   dans la plage restent en couleur, les autres deviennent très pâles, et une bande jaune
   marque la plage sur l'axe. Les chiffres de la sélection sont recalculés sur
   toutes les commandes des catégories choisies.
-- **Sélections de départ** prêtes pour la démo : notes 1-2, prix élevés, frais
-  élevés, livraison longue.
-- **Réorganiser** les axes (ordre choisi dans une liste).
-- **Aide à la lecture** : encadré « Comment lire ce graphique » (légende des couleurs), définition de chaque axe au survol de son titre et dans « Définition de chaque axe ».
+- **Sélection rapide** pour la démo : avis 1-2 ★, prix élevés, frais élevés,
+  livraison longue.
+- **Réorganiser** les axes (« Ordre des axes »).
+- **Aide à la lecture** : légende des couleurs sur chaque graphique, bulles
+  d'aide (?) à côté des titres, définition de chaque axe au survol de son titre
+  et dans « Définition de chaque axe ».
 - **Changement de jeu de données** (2017, 2018, toutes les commandes).
+
+**Présentation (tableau de bord, même style que la page 4)** : quatre chiffres
+clés en haut, puis trois cadres (vue d'ensemble, détail, réponse), noms de
+catégories en français, et « À propos des chiffres » pour la source et les
+limites.
 
 Le graphique est dessiné en SVG (sans WebGL) pour s'afficher dans tous les
 navigateurs.
