@@ -20,6 +20,9 @@ RUN apt-get update \
 WORKDIR /app
 USER app
 
+# Une image de développement sans Git/SSH doit échouer dès la construction.
+RUN git --version && ssh -V
+
 COPY --chown=app:app pyproject.toml uv.lock .python-version ./
 RUN uv sync --locked --no-install-project
 

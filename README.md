@@ -26,26 +26,6 @@ streamlit run main.py
 
 Application locale : [localhost:8501](http://localhost:8501).
 
-### Push Git via SSH
-
-L'image de développement inclut le client SSH. Après une modification du Dockerfile,
-lancer **Dev Containers: Rebuild Container** dans VS Code pour mettre à jour le conteneur.
-
-Pour un remote SSH (`git@github.com:...`), la clé autorisée sur GitHub doit être
-accessible via l'agent SSH de la machine hôte. Vérifier les clés chargées avec
-`ssh-add -l` dans le terminal de la machine hôte ; si nécessaire, charger sa clé
-avec `ssh-add /chemin/vers/la/cle_privee`, puis rouvrir le dev container.
-Ne pas copier la clé privée dans le dépôt ou dans l'image Docker.
-
-Depuis le terminal du dev container, vérifier l'authentification puis pousser :
-
-```bash
-ssh -T git@github.com
-git push
-```
-
-GitHub confirme l'authentification par un message `successfully authenticated`,
-même si cette commande de vérification renvoie le code de sortie 1.
 
 
 ## Structure du projet
