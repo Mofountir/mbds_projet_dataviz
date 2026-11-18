@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; color: #222; }
+  .axis path, .axis line { stroke: #999; }
+  .axis text { fill: #555; font-size: 11px; }
+  .grid line { stroke: #e5e7eb; }
+  .grid path { display: none; }
+  .brush .selection { fill: #60a5fa; fill-opacity: .25; stroke: #2563eb; }
+  .context-line { fill: none; stroke: #64748b; stroke-width: 1.4; }
+  .focus-line { fill: none; stroke: #2563eb; stroke-width: 2; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 12px 8px; font-size: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+  .legend-item.off { opacity: .35; text-decoration: line-through; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; }
+  #selected { font-size: 13px; padding: 6px 12px; }
+  .hint { font-size: 12px; color: #666; padding: 0 12px; }
+</style>
+</head>
+<body>
+<div id="selected">Select a date range in the overview below.</div>
+<div id="legend" class="legend"></div>
+<svg id="chart" viewBox="0 0 900 480" role="img" aria-label="Interactive time series"></svg>
+<p class="hint">Brush the lower strip to zoom. Double-click it to reset. Click legend items to toggle categories.</p>
+
+<script>
+const DATA = __DATA__;
+const CATEGORY_DATA = __CATEGORY_DATA__;
+const METRIC = __METRIC__;
+const CATEGORIES = __CATEGORIES__;
+
+const parseDate = d3.timeParse("%Y-%m-%d");
+const formatDate = d3.timeFormat("%d %b %Y");
+
+const daily = DATA.map(d => ({
+  date: parseDate(d.date),
+  value: d[METRIC] == null ? NaN : +d[METRIC],
+  orders: +d.orders,
+  revenue: +d.revenue,
+  late_rate: +d.late_rate,
+})).sort((a, b) => a.date - b.date);
+
+const catRows = CATEGORY_DATA.map(d => ({
+  date: parseDate(d.date),
+  category: d.category,
+  revenue: +d.revenue,
+}));
+
+const color = d3.scaleOrdinal().domain(CATEGORIES).range(d3.schemeTableau10);
+
+const svg = d3.select("#chart");
+const W = 900, H = 480;
+const margin = { top: 20, right: 30, bottom: 30, left: 80 };
+const focusH = 270;
+const contextH = 65;
+const contextY = 360;
+const innerW = W - margin.left - margin.right;
+
+const focus = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+const context = svg.append("g").attr("transform", `translate(${margin.left},${contextY})`);
+
+const valid = daily.filter(d => d.date instanceof Date && Number.isFinite(d.value));
+
+if (valid.length === 0) {
+  document.querySelector("#selected").textContent = "No valid observations.";
+} else {
+  const domain = d3.extent(valid, d => d.date);
+  const x = d3.scaleTime().domain(domain).range([0, innerW]);
+  const x2 = x.copy();
+
+  const maxValue = d3.max(valid, d => d.value) || 1;
+  const y = d3.scaleLinear().domain([0, maxValue]).nice().range([focusH, 0]);
+  const y2 = d3.scaleLinear().domain(y.domain()).range([contextH, 0]);
+
+  focus.append("g").attr("class", "grid")
+    .call(d3.axisLeft(y).ticks(5).tickSize(-innerW).tickFormat(""));
+
+  const xAxis = focus.append("g").attr("class", "axis")
+    .attr("transform", `translate(0,${focusH})`)
+    .call(d3.axisBottom(x).ticks(7));
+
+  focus.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+
+  focus.append("text")
+    .attr("x", -focusH / 2).attr("y", -60)
+    .attr("transform", "rotate(-90)")
+    .attr("text-anchor", "middle").attr("fill", "currentColor")
+    .text(METRIC.replaceAll("_", " "));
+
+  const line2 = d3.line().defined(d => Number.isFinite(d.value))
+    .x(d => x2(d.date)).y(d => y2(d.value));
+
+  context.append("path").datum(valid).attr("class", "context-line").attr("d", line2);
+  context.append("g").attr("class", "axis")
+    .attr("transform", `translate(0,${contextH})`)
+    .call(d3.axisBottom(x2).ticks(7));
+
+  // --- 1. INITIALISATION DES VARIABLES (Placées AVANT le brush) ---
+  const hidden = new Set();
+  const isStacked = METRIC === "revenue";
+
+  let rows = null;
+  if (isStacked) {
+    const byDate = d3.group(catRows, d => +d.date);
+    const dates = Array.from(byDate.keys()).sort((a, b) => a - b);
+    rows = dates.map(ts => {
+      const row = { date: new Date(ts) };
+      CATEGORIES.forEach(c => { row[c] = 0; });
+      byDate.get(ts).forEach(d => { row[d.category] = (row[d.category] || 0) + d.revenue; });
+      return row;
+    });
+  }
+
+  // --- 2. FONCTION DE RENDU ---
+  function renderFocus() {
+    if (isStacked) {
+      const visible = CATEGORIES.filter(c => !hidden.has(c));
+      const stack = d3.stack().keys(visible).order(d3.stackOrderNone).offset(d3.stackOffsetNone);
+      const series = stack(rows);
+      const area = d3.area()
+        .x(d => x(d.data.date))
+        .y0(d => y(d[0]))
+        .y1(d => y(d[1]));
+      focus.selectAll(".area").data(series).join("path")
+        .attr("class", "area")
+        .attr("fill", d => color(d.key))
+        .attr("opacity", 0.85)
+        .attr("d", area);
+    } else {
+      const line = d3.line().defined(d => Number.isFinite(d.value))
+        .x(d => x(d.date)).y(d => y(d.value));
+      focus.selectAll(".focus-line").data([valid]).join("path")
+        .attr("class", "focus-line").attr("d", line);
+    }
+  }
+
+  // --- 3. GESTION DU BRUSH ---
+  function brushed(event) {
+    if (!event.selection) {
+      // Si on efface la sélection, on remet le graphique à zéro
+      x.domain(domain);
+      xAxis.call(d3.axisBottom(x).ticks(7));
+      renderFocus();
+      document.querySelector("#selected").textContent = "Select a date range in the overview below.";
+      return;
+    }
+    const [a, b] = event.selection.map(x2.invert);
+    x.domain([a, b]);
+    xAxis.call(d3.axisBottom(x).ticks(7));
+    renderFocus();
+    document.querySelector("#selected").textContent =
+      `Selected period: ${formatDate(a)} – ${formatDate(b)}`;
+  }
+
+  const brush = d3.brushX()
+    .extent([[0, 0], [innerW, contextH]])
+    .on("brush end", brushed);
+
+    const brushG = context.append("g").attr("class", "brush").call(brush);
+  
+  // --- NOUVEAU : Sélection par défaut sur l'année 2017 pour que ce soit visible ---
+  let defaultStart = x2(parseDate("2017-01-01"));
+  let defaultEnd = x2(parseDate("2017-12-31"));
+  
+  // Si les dates sont hors limites (ex: dataset 2018 uniquement), on prend tout
+  if (defaultStart > defaultEnd || defaultStart >= innerW || defaultEnd <= 0) {
+    defaultStart = 0;
+    defaultEnd = innerW;
+  } else {
+    defaultStart = Math.max(0, defaultStart);
+    defaultEnd = Math.min(innerW, defaultEnd);
+  }
+  
+  // Applique la sélection
+  brushG.call(brush.move, [defaultStart, defaultEnd]);
+  
+  // Double-clic pour tout réinitialiser
+  context.on("dblclick", () => brushG.call(brush.move, null));
+
+  // --- 4. RENDU INITIAL ---
+  renderFocus();
+
+  // --- 5. LÉGENDE ---
+  if (isStacked) {
+    const legend = d3.select("#legend");
+    CATEGORIES.forEach(cat => {
+      const item = legend.append("div").attr("class", "legend-item")
+        .on("click", () => {
+          if (hidden.has(cat)) hidden.delete(cat); else hidden.add(cat);
+          item.classed("off", hidden.has(cat));
+          renderFocus();
+        });
+      item.append("div").attr("class", "swatch").style("background", color(cat));
+      item.append("span").text(cat);
+    });
+  }
+
+  // --- 6. TOOLTIP ET SURVOL ---
+  const overlay = focus.append("rect")
+    .attr("width", innerW).attr("height", focusH)
+    .attr("fill", "transparent").style("pointer-events", "all");
+
+  const guide = focus.append("line")
+    .attr("y1", 0).attr("y2", focusH)
+    .attr("stroke", "#64748b").attr("stroke-dasharray", "3 3")
+    .style("display", "none");
+
+  const dot = focus.append("circle").attr("r", 4).attr("fill", "#2563eb").style("display", "none");
+  const tooltip = focus.append("text").attr("fill", "currentColor").attr("font-size", 12).style("display", "none");
+
+  overlay
+    .on("mousemove", function(event) {
+      const [mx] = d3.pointer(event, this);
+      const date = x.invert(mx);
+      const idx = d3.bisector(d => d.date).center(daily, date);
+      const d = daily[idx];
+      if (!d) return;
+
+      let valToDisplay = d.value;
+      let dotY = y(d.value);
+      
+      // Si on est en mode Revenue (stacked), on recalcule la somme des catégories visibles
+      if (isStacked && rows) {
+         const row = rows.find(r => +r.date === +d.date);
+         if (row) {
+           valToDisplay = 0;
+           CATEGORIES.forEach(c => {
+             if (!hidden.has(c)) valToDisplay += (row[c] || 0);
+           });
+           dotY = y(valToDisplay); // On place le point tout en haut de la zone visible
+         }
+      }
+
+      guide.attr("x1", x(d.date)).attr("x2", x(d.date)).style("display", null);
+      dot.attr("cx", x(d.date)).attr("cy", dotY).style("display", null);
+      
+      tooltip
+        .attr("x", Math.min(x(d.date) + 8, innerW - 180))
+        .attr("y", Math.max(dotY - 10, 12))
+        .text(`${formatDate(d.date)}: ${valToDisplay.toLocaleString(undefined, { maximumFractionDigits: 2 })}`)
+        .style("display", null);
+    })
+    .on("mouseleave", () => {
+      guide.style("display", "none");
+      dot.style("display", "none");
+      tooltip.style("display", "none");
+    });
+
+  overlay.raise();
+  brushG.raise();
+}
+</script>
+</body>
+</html>
