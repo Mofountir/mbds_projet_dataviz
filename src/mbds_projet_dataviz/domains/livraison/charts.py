@@ -1,11 +1,13 @@
 """Figures Plotly du domaine livraison.
 
 Couleurs : une seule rampe bleue séquentielle (clair = faible, foncé = élevé) pour
-les valeurs ; orange réservé aux vendeurs sur la carte de détail.
+les valeurs ; orange réservé aux villes des vendeurs sur la carte des itinéraires.
 """
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.colors import sample_colorscale
 
 from mbds_projet_dataviz.domains.livraison.transforms import (
     DISTANCE_LABELS,
@@ -28,6 +30,10 @@ SERIES_BLUE = "#2a78d6"
 SELLER_ORANGE = "#eb6834"
 OUTLINE_GRAY = "#c3c2b7"
 LIGHT_BLUE = "#9ec5f4"
+# Arcs : on saute l'étape la plus claire, invisible sur fond blanc. Échelle fixe
+# de délai pour comparer les États entre eux.
+ROUTE_SCALE = [[i / (len(BLUE_RAMP) - 2), c] for i, c in enumerate(BLUE_RAMP[1:])]
+ROUTE_DAYS_RANGE = (5.0, 30.0)
 # Couleurs catégorielles validées (ordre fixe) pour les régions comparées.
 REGION_COLORS = dict(zip(FOCUS_REGIONS, ["#2a78d6", "#eb6834", "#1baf7a"]))
 
@@ -110,83 +116,187 @@ def region_bars(regions: pd.DataFrame, metric_key: str) -> go.Figure:
     return fig
 
 
-def state_detail_map(
-    cities: pd.DataFrame,
-    sellers: pd.DataFrame,
+def _route_hover(prefix: str) -> str:
+    return (
+        prefix + "<b>%{customdata[0]}</b> → clients de l'État<br>"
+        "Commandes : %{customdata[1]:,}<br>"
+        "Distance médiane : %{customdata[2]:,.0f} km<br>"
+        "Délai médian : %{customdata[3]:.1f} jours<br>"
+        "En retard : %{customdata[4]:.1f} %<extra></extra>"
+    )
+
+
+def route_map(
+    routes: pd.DataFrame,
     geojson: dict,
     state: str,
-    metric_key: str,
+    bounds: tuple[float, float, float, float],
 ) -> go.Figure:
-    feature = [f for f in geojson["features"] if f["properties"]["sigla"] == state]
-    outline = {"type": "FeatureCollection", "features": feature}
-    cities = cities.dropna(subset=["lat", "lng"])
-    max_orders = max(cities["orders"].max(), 1)
+    """Arcs ville du vendeur -> clients de l'État : épaisseur = commandes,
+    couleur = délai médian (échelle fixe, comparable d'un État à l'autre)."""
+    days_min, days_max = ROUTE_DAYS_RANGE
+    scaled = ((routes["median_days"] - days_min) / (days_max - days_min)).clip(0, 1)
+    colors = sample_colorscale(ROUTE_SCALE, scaled.tolist())
+    widths = 1.5 + 8 * np.sqrt(routes["orders"] / routes["orders"].max())
+    custom = np.column_stack(
+        [
+            routes["origin_city"] + " (" + routes["origin_state"] + ")",
+            routes["orders"],
+            routes["distance_km"],
+            routes["median_days"],
+            routes["late_rate"],
+        ]
+    )
 
-    fig = go.Figure()
-    fig.add_trace(
+    fig = go.Figure(
         go.Choropleth(
-            geojson=outline,
+            geojson=geojson,
             featureidkey=STATE_KEY,
-            locations=[state],
-            z=[0],
-            colorscale=[[0, "rgba(195,194,183,0.15)"], [1, "rgba(195,194,183,0.15)"]],
+            locations=[f["properties"]["sigla"] for f in geojson["features"]],
+            z=[
+                1 if f["properties"]["sigla"] == state else 0
+                for f in geojson["features"]
+            ],
+            colorscale=[[0, "rgba(195,194,183,0.12)"], [1, "rgba(42,120,214,0.12)"]],
+            zmin=0,
+            zmax=1,
             showscale=False,
             marker_line_color=OUTLINE_GRAY,
-            marker_line_width=1,
+            marker_line_width=0.6,
             hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    # Les itinéraires les plus fréquents en dernier : tracés au-dessus.
+    for i in reversed(range(len(routes))):
+        row = routes.iloc[i]
+        fig.add_trace(
+            go.Scattergeo(
+                lat=[row["origin_lat"], row["dest_lat"]],
+                lon=[row["origin_lng"], row["dest_lng"]],
+                mode="lines",
+                line=dict(width=float(widths.iloc[i]), color=colors[i]),
+                opacity=0.85,
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+    # Cible de survol au milieu de chaque arc (le trait seul n'a pas de survol).
+    fig.add_trace(
+        go.Scattergeo(
+            lat=(routes["origin_lat"] + routes["dest_lat"]) / 2,
+            lon=(routes["origin_lng"] + routes["dest_lng"]) / 2,
+            mode="markers",
+            marker=dict(size=14, color="rgba(0,0,0,0)"),
+            customdata=custom,
+            hovertemplate=_route_hover(""),
             showlegend=False,
         )
     )
     fig.add_trace(
         go.Scattergeo(
-            name="Villes des clients (taille = commandes)",
-            lat=cities["lat"],
-            lon=cities["lng"],
-            text=cities["city"],
-            # Tableau numpy : metric_key peut valoir "orders" (colonne en double).
-            customdata=cities[["orders", metric_key]].to_numpy(),
+            name="Ville du vendeur",
+            lat=routes["origin_lat"],
+            lon=routes["origin_lng"],
             mode="markers",
             marker=dict(
-                size=cities["orders"],
-                sizemode="area",
-                sizeref=2.0 * max_orders / (40.0**2),
-                sizemin=3,
-                color=cities[metric_key],
-                colorscale=BLUE_SCALE,
-                colorbar=dict(title=dict(text=METRICS[metric_key].unit), thickness=12),
-                line=dict(color="white", width=1),
-                opacity=0.9,
+                size=9,
+                color=SELLER_ORANGE,
+                symbol="diamond",
+                line=dict(color="white", width=1.5),
             ),
-            hovertemplate=(
-                "<b>%{text}</b><br>Commandes livrées : %{customdata[0]:,}<br>"
-                f"{METRICS[metric_key].label} : "
-                + _hover_value(metric_key, "customdata[1]")
-                + "<extra></extra>"
-            ),
+            customdata=custom,
+            hovertemplate=_route_hover("Vendeurs de "),
         )
     )
     fig.add_trace(
         go.Scattergeo(
-            name="Vendeurs",
-            lat=sellers["seller_lat"],
-            lon=sellers["seller_lng"],
-            text=sellers["seller_city"],
+            name="Clients servis (point moyen)",
+            lat=routes["dest_lat"],
+            lon=routes["dest_lng"],
             mode="markers",
             marker=dict(
                 size=8,
-                color=SELLER_ORANGE,
-                symbol="diamond",
-                line=dict(color="white", width=1),
+                color=routes["median_days"],
+                colorscale=ROUTE_SCALE,
+                cmin=days_min,
+                cmax=days_max,
+                colorbar=dict(title=dict(text="jours"), thickness=12),
+                line=dict(color="white", width=1.5),
             ),
-            hovertemplate="<b>Vendeur</b> · %{text}<extra></extra>",
+            customdata=custom,
+            hovertemplate=_route_hover("Depuis "),
         )
     )
-    fig.update_geos(fitbounds="locations", visible=False, projection_type="mercator")
+
+    lat_min, lat_max, lng_min, lng_max = bounds
+    lats = [lat_min, lat_max, *routes["origin_lat"], *routes["dest_lat"]]
+    lngs = [lng_min, lng_max, *routes["origin_lng"], *routes["dest_lng"]]
+    pad = 1.5
+    fig.update_geos(
+        visible=False,
+        projection_type="mercator",
+        lataxis_range=[min(lats) - pad, max(lats) + pad],
+        lonaxis_range=[min(lngs) - pad, max(lngs) + pad],
+    )
     fig.update_layout(
         height=520,
         margin=dict(l=0, r=0, t=10, b=0),
         geo=dict(bgcolor="rgba(0,0,0,0)"),
         legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0),
+        separators=FR_SEPARATORS,
+    )
+    return fig
+
+
+def state_distance_chart(profile: pd.DataFrame) -> go.Figure:
+    """Délai médian par tranche de distance pour un État, IC à 95 % en barres."""
+    value = profile["median_days"]
+    labels = [""] * len(profile)
+    if len(profile):
+        labels[0] = format_number(value.iloc[0], "{:.1f} j")
+        labels[-1] = format_number(value.iloc[-1], "{:.1f} j")
+    fig = go.Figure(
+        go.Scatter(
+            x=profile["distance_band"].astype(str),
+            y=value,
+            mode="lines+markers+text",
+            line=dict(color=SERIES_BLUE, width=2),
+            marker=dict(size=9, color=SERIES_BLUE, line=dict(color="white", width=2)),
+            error_y=dict(
+                type="data",
+                array=profile["median_days_high"] - value,
+                arrayminus=value - profile["median_days_low"],
+                color=SERIES_BLUE,
+                thickness=1.5,
+                width=5,
+            ),
+            text=labels,
+            # 1er point : étiquette sous la courbe à droite ; dernier : au-dessus
+            # à gauche, pour ne chevaucher ni la courbe ni les barres d'IC.
+            textposition=["bottom right"] + ["top left"] * (len(profile) - 1),
+            cliponaxis=False,
+            customdata=profile[
+                ["median_days_low", "median_days_high", "orders", "late_rate"]
+            ].to_numpy(),
+            hovertemplate=(
+                "<b>%{x}</b><br>Délai médian : %{y:.1f} jours"
+                "<br>IC 95 % : %{customdata[0]:.1f} - %{customdata[1]:.1f}"
+                "<br>En retard : %{customdata[3]:.1f} %"
+                "<br>Commandes : %{customdata[2]:,}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        height=520,
+        margin=dict(l=0, r=10, t=10, b=0),
+        xaxis=dict(
+            title="Distance client - vendeur principal",
+            categoryorder="array",
+            categoryarray=DISTANCE_LABELS,
+        ),
+        yaxis=dict(title="Délai médian de livraison (jours)", rangemode="tozero"),
+        showlegend=False,
         separators=FR_SEPARATORS,
     )
     return fig

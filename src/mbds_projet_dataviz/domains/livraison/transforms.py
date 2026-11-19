@@ -55,6 +55,8 @@ DISTANCE_LABELS = [
 ]
 # En dessous, une médiane par tranche est trop instable pour être affichée.
 MIN_ORDERS_PER_CELL = 30
+# Itinéraires affichés sur la carte de détail : au-delà, les arcs se confondent.
+MAX_ROUTES = 15
 Z_95 = 1.96
 
 
@@ -155,10 +157,99 @@ def city_metrics(orders: pd.DataFrame, state: str) -> pd.DataFrame:
     return out.sort_values("orders", ascending=False).reset_index(drop=True)
 
 
-def sellers_in_state(sellers: pd.DataFrame, state: str) -> pd.DataFrame:
-    return sellers[
-        (sellers["seller_state"] == state) & sellers["seller_lat"].notna()
-    ].reset_index(drop=True)
+def clean_city(names: pd.Series) -> pd.Series:
+    """Nom de ville saisi librement -> forme commune (« São Paulo / SP » -> sao paulo)."""
+    return (
+        names.fillna("")
+        .str.split(r"/| - |,", regex=True)
+        .str[0]
+        .str.normalize("NFKD")
+        .str.encode("ascii", "ignore")
+        .str.decode("ascii")
+        .str.lower()
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+    )
+
+
+def routes_to_state(
+    orders: pd.DataFrame,
+    sellers: pd.DataFrame,
+    geojson: dict,
+    state: str,
+    max_routes: int = MAX_ROUTES,
+) -> tuple[pd.DataFrame, int]:
+    """Itinéraires ville du vendeur -> clients de l'État, les plus fréquents d'abord.
+
+    Une ligne par ville d'origine (vendeur principal). La destination est le point
+    moyen des clients servis depuis cette ville. Les clients géolocalisés hors de
+    l'État sont écartés. Renvoie aussi le nombre total de commandes géolocalisées
+    de l'État, pour dire quelle part les itinéraires affichés couvrent.
+    """
+    in_state = orders[orders["customer_state"] == state].dropna(
+        subset=["customer_lat", "main_seller_lat"]
+    )
+    in_state = within_bounds(
+        in_state, state_bounds(geojson, state), "customer_lat", "customer_lng"
+    )
+    cities = sellers.set_index("seller_id")["seller_city"]
+    in_state = in_state.assign(
+        origin_city=clean_city(in_state["main_seller_id"].map(cities)),
+        is_late=in_state["is_late"].astype(float),
+    )
+    routes = (
+        in_state.groupby(["main_seller_state", "origin_city"], observed=True)
+        .agg(
+            orders=("order_id", "count"),
+            origin_lat=("main_seller_lat", "mean"),
+            origin_lng=("main_seller_lng", "mean"),
+            dest_lat=("customer_lat", "mean"),
+            dest_lng=("customer_lng", "mean"),
+            distance_km=("distance_km", "median"),
+            median_days=("delivery_days", "median"),
+            late_rate=("is_late", "mean"),
+        )
+        .reset_index()
+        .rename(columns={"main_seller_state": "origin_state"})
+        .sort_values("orders", ascending=False)
+        .head(max_routes)
+        .reset_index(drop=True)
+    )
+    routes["late_rate"] *= 100
+    routes["origin_city"] = routes["origin_city"].str.title()
+    routes["is_local"] = routes["origin_state"] == state
+    return routes, len(in_state)
+
+
+def state_distance_profile(orders: pd.DataFrame, state: str) -> pd.DataFrame:
+    """Délai médian (IC à 95 %) par tranche de distance, clients d'un seul État."""
+    banded = with_distance_band(orders[orders["customer_state"] == state])
+    rows = []
+    for band, group in banded.groupby("distance_band", observed=True):
+        if len(group) < MIN_ORDERS_PER_CELL:
+            continue
+        days, low, high = median_interval(group["delivery_days"].to_numpy(float))
+        rows.append(
+            {
+                "distance_band": band,
+                "orders": len(group),
+                "median_days": days,
+                "median_days_low": low,
+                "median_days_high": high,
+                "late_rate": 100 * group["is_late"].astype(float).mean(),
+            }
+        )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "distance_band",
+            "orders",
+            "median_days",
+            "median_days_low",
+            "median_days_high",
+            "late_rate",
+        ],
+    )
 
 
 def state_bounds(geojson: dict, state: str) -> tuple[float, float, float, float]:
