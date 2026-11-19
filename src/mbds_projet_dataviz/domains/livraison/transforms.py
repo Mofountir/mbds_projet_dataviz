@@ -89,17 +89,6 @@ def format_value(metric_key: str, value: float) -> str:
     return f"{format_number(value, metric.fmt)} {metric.unit}"
 
 
-def filter_period(
-    orders: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp
-) -> pd.DataFrame:
-    """Commandes achetées entre le 1er jour de ``start`` et le dernier de ``end``."""
-    end_exclusive = end + pd.offsets.MonthBegin(1)
-    mask = (orders["purchase_date"] >= start) & (
-        orders["purchase_date"] < end_exclusive
-    )
-    return orders[mask]
-
-
 def _aggregate(orders: pd.DataFrame, by: str | list[str]) -> pd.DataFrame:
     out = (
         orders.assign(

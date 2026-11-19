@@ -3,6 +3,7 @@
 import streamlit as st
 
 from mbds_projet_dataviz.domains.coordonnees import charts, datasets, transforms
+from mbds_projet_dataviz.shared.filters import selected_dataset
 
 # Sélections de départ prêtes pour la démo : {nom: {colonne: (min, max)}}.
 PRESETS = {
@@ -24,9 +25,7 @@ except FileNotFoundError as error:
     st.error(str(error))
     st.stop()
 
-dataset = st.sidebar.selectbox(
-    "Jeu de données", list(datasets.DATASETS), index=2, key="dataset"
-)
+dataset = selected_dataset()
 orders = transforms.filter_dataset(all_orders, dataset)
 numbers = transforms.key_numbers(orders)
 

@@ -1,17 +1,16 @@
 """Page du domaine 1 : carte du Brésil — délais et retards de livraison par région."""
 
-import pandas as pd
 import streamlit as st
 
 from mbds_projet_dataviz.domains.livraison import charts, datasets, transforms
 from mbds_projet_dataviz.domains.livraison.transforms import METRICS, format_number
 from mbds_projet_dataviz.domains.livraison.transforms import format_value as fmt
 from mbds_projet_dataviz.shared.data import missing_data_message
+from mbds_projet_dataviz.shared.filters import selected_dataset
+from mbds_projet_dataviz.shared.transforms import filter_dataset
 
 STATE_KEY = "livraison_state"
 MAP_KEY = "livraison_map"
-# Avant 2017 et après août 2018, trop peu de commandes pour comparer les États.
-DEFAULT_PERIOD = (pd.Timestamp("2017-01-01"), pd.Timestamp("2018-08-01"))
 
 
 def select_state_from_map() -> None:
@@ -61,29 +60,16 @@ with st.expander("Données et définitions"):
 """
     )
 
-months = pd.date_range(
-    orders["purchase_date"].min().to_period("M").to_timestamp(),
-    orders["purchase_date"].max(),
-    freq="MS",
+dataset = selected_dataset()
+metric_key = st.selectbox(
+    "Indicateur",
+    options=list(METRICS),
+    format_func=lambda k: METRICS[k].label,
 )
-filter_period, filter_metric = st.columns([3, 2])
-with filter_period:
-    start, end = st.select_slider(
-        "Période d'achat",
-        options=list(months),
-        value=DEFAULT_PERIOD,
-        format_func=lambda m: m.strftime("%m/%Y"),
-    )
-with filter_metric:
-    metric_key = st.selectbox(
-        "Indicateur",
-        options=list(METRICS),
-        format_func=lambda k: METRICS[k].label,
-    )
 
-period_orders = transforms.filter_period(orders, start, end)
+period_orders = filter_dataset(orders, dataset)
 if period_orders.empty:
-    st.warning("Aucune commande livrée sur cette période.")
+    st.warning("Aucune commande livrée dans ce jeu de données.")
     st.stop()
 
 states = transforms.state_metrics(period_orders)
@@ -98,8 +84,8 @@ kpi[3].metric("Note moyenne", fmt("mean_review", national["mean_review"]))
 
 st.subheader("Vue d'ensemble : les 27 États")
 st.caption(
-    f"{METRICS[metric_key].label} par État du client, du {start:%m/%Y} au "
-    f"{end:%m/%Y}. Plus la couleur est foncée, plus la valeur est élevée. "
+    f"{METRICS[metric_key].label} par État du client · {dataset}. Plus la "
+    "couleur est foncée, plus la valeur est élevée. "
     "Cliquer sur un État pour afficher ses itinéraires de livraison plus bas."
 )
 map_col, region_col = st.columns([3, 2])
@@ -118,7 +104,7 @@ with region_col:
     st.caption(
         f"{seller_share.get('SP', 0):.0f} % des {format_number(len(sellers))} "
         "vendeurs sont inscrits dans l'État de São Paulo (tous vendeurs, sans "
-        "filtre de période)."
+        "filtre de jeu de données)."
     )
 
 with st.expander("Tableau par État"):
@@ -174,7 +160,7 @@ route_col, profile_col = st.columns([3, 2])
 with route_col:
     st.markdown(f"**Les {len(routes)} itinéraires les plus fréquents vers {state}**")
     if routes.empty:
-        st.info("Aucune commande géolocalisée pour cet État sur la période.")
+        st.info("Aucune commande géolocalisée pour cet État dans ce jeu de données.")
     else:
         st.plotly_chart(
             charts.route_map(
@@ -205,7 +191,7 @@ with profile_col:
     elif profile.empty:
         st.info(
             "Trop peu de commandes par tranche de distance pour cet État sur la "
-            f"période (minimum {transforms.MIN_ORDERS_PER_CELL} par tranche)."
+            f"jeu de données (minimum {transforms.MIN_ORDERS_PER_CELL} par tranche)."
         )
     else:
         st.plotly_chart(charts.state_distance_chart(profile), width="stretch")
@@ -337,7 +323,7 @@ compared = ["Norte", "Nordeste"]
 if not all(r in by_region.index and r in days_by_region.index for r in compared) or (
     transforms.REFERENCE_REGION not in by_region.index
 ):
-    st.info("La période choisie ne contient pas les trois régions à comparer.")
+    st.info("Le jeu de données choisi ne contient pas les trois régions à comparer.")
 else:
     ref = by_region.loc[transforms.REFERENCE_REGION]
     rows = {r: by_region.loc[r] for r in compared}
@@ -357,7 +343,7 @@ else:
         )
     else:
         part_one = (
-            "**1. L'écart de délai n'est pas établi** sur cette période : les "
+            "**1. L'écart de délai n'est pas établi** sur ce jeu de données : les "
             "intervalles de confiance se chevauchent."
         )
     late_text = [
@@ -425,7 +411,7 @@ else:
         verdict = "Écart confirmé, mais explication par les vendeurs rejetée"
     else:
         verdict = "Hypothèse rejetée"
-    st.markdown(f"#### {verdict} sur cette période")
+    st.markdown(f"#### {verdict} ({dataset})")
     st.markdown(part_one)
     st.markdown(part_two)
 
