@@ -4,6 +4,7 @@ import streamlit as st
 
 from mbds_projet_dataviz.domains.coordonnees import charts, datasets, transforms
 from mbds_projet_dataviz.domains.treemap.labels import category_label, number
+from mbds_projet_dataviz.shared.filters import selected_dataset
 
 PLOT_CONFIG = {"displayModeBar": False, "displaylogo": False}
 
@@ -38,9 +39,7 @@ except FileNotFoundError:
         st.code("python -m mbds_projet_dataviz.domains.coordonnees.transforms")
     st.stop()
 
-dataset = st.sidebar.selectbox(
-    "Jeu de données", list(datasets.DATASETS), index=2, key="dataset"
-)
+dataset = selected_dataset()
 orders = transforms.filter_dataset(all_orders, dataset)
 numbers = transforms.key_numbers(orders)
 summary = transforms.category_summary(orders)

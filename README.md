@@ -6,27 +6,61 @@ Documentation : [Doc.md](./docs/DOC.md)
 
 ## Contribuer
 
-Pré-requis : Docker Desktop installé et démarré, VS Code et l'extension **Dev Containers**.
+Pré-requis : Git et `uv`. Le développement se fait directement sur la machine,
+avec l'éditeur de son choix. Docker sert uniquement au déploiement sur Render.
+
+À faire une fois après le clonage, dans un terminal local :
 
 ```bash
 git clone https://github.com/Mofountir/mbds_projet_dataviz.git
 cd mbds_projet_dataviz
-cp .env.example .env
+uv sync --locked --dev
+uv run --no-sync pre-commit install --hook-type pre-commit --config githooks/pre-commit.yaml
+uv run --no-sync pre-commit install --hook-type pre-push --config githooks/pre-push.yaml
 ```
 
-Dans `.env`, remplacer `change-me` par le chemin absolu du dossier contenant les CSV : `LOCAL_STORAGE=/chemin/vers/les/csv`.
+`uv` prépare Python 3.13 et l'environnement `.venv` avec les versions de `uv.lock`.
+L'installation des hooks est propre à chaque clone : chaque membre la fait une
+fois. Si ce clone était utilisé dans un conteneur, relancer les deux commandes
+`pre-commit install` depuis la machine pour remplacer les anciens chemins.
 
-Ouvrir le dossier dans VS Code → **Dev Containers: Reopen in Container**. 
-
-Tester l'app le terminal du conteneur :
+Lancer l'application :
 
 ```bash
-streamlit run main.py
+uv run streamlit run main.py
 ```
 
 Application locale : [localhost:8501](http://localhost:8501).
 
+Les données préparées dans `data/03_primary/` suffisent pour lancer l'application.
+Les CSV bruts ne sont nécessaires que pour reconstruire les données. Pour cela,
+passer leur dossier au script de transformation :
 
+```bash
+uv run python -m mbds_projet_dataviz.domains.coordonnees.transforms /chemin/vers/les/csv
+```
+
+On peut aussi copier `.env.example` en `.env`, renseigner `LOCAL_STORAGE`, puis
+exécuter :
+
+```bash
+uv run --env-file .env python -m mbds_projet_dataviz.domains.coordonnees.transforms
+```
+
+## Vérifications et déploiement
+
+- Avant chaque commit, les hooks vérifient les fichiers Python modifiés avec Ruff.
+- Avant chaque push, ils vérifient le code du projet, le format et les imports.
+- Les tests automatisés seront ajoutés plus tard ; `tests/` est réservé à cet effet.
+- Après revue et merge d'une PR dans `main`, Render construit l'image et déploie
+  automatiquement le nouveau commit. Il n'y a plus de workflow GitHub Actions.
+
+Les hooks sont locaux et peuvent être contournés : ils ne remplacent pas la revue
+par un autre membre. Render ne lance pas ces hooks.
+
+Le seul Dockerfile est `docker/Dockerfile.prod`. Il installe les dépendances de
+production et copie l'application et ses données préparées. `deploy/render.yaml`
+définit la branche `main`, le déploiement à chaque commit et le contrôle de santé.
 
 ## Structure du projet
 
@@ -40,6 +74,9 @@ Application locale : [localhost:8501](http://localhost:8501).
 | `pages/about.py` | Présentation du projet (Story telling) |
 | [`shared/`](src/mbds_projet_dataviz/shared/) | Code réutilisé par au moins deux domaines ; sinon, garde-le dans ton domaine. |
 | [`main.py`](main.py) | Enregistrement des pages et navigation de l'application. |
+| [`githooks/`](githooks/) | Vérifications locales avant commit et push. |
+| [`tests/`](tests/) | Dossier réservé aux futurs tests automatisés. |
+| [`docker/Dockerfile.prod`](docker/Dockerfile.prod) et [`deploy/render.yaml`](deploy/render.yaml) | Construction et déploiement sur Render. |
 | [`data/01_raw/`](data/01_raw/) → [`data/02_intermediate/`](data/02_intermediate/) → [`data/03_primary/`](data/03_primary/) | CSV bruts locaux → résultats intermédiaires locaux → données gold connecté à l'app |
 
 
@@ -47,8 +84,8 @@ Strategie de visualisation : [API Streamlit Charts](https://docs.streamlit.io/de
 
 ## Règles de contribution
 
-1. Créer une branche `<num_issue>_<branch_name>` depuis `main`. Faire les commits et les pushs depuis le terminal du conteneur. Coordonner les modifications de `main.py`, `pages/about.py` et `shared/` avec l'équipe.
+1. Créer une branche `<num_issue>_<branch_name>` depuis `main`. Faire les commits et les pushs depuis son terminal local, avec les hooks installés. Coordonner les modifications de `main.py`, `pages/about.py` et `shared/` avec l'équipe.
 2. Avant la PR, lancer `uv run ruff check .` et `uv run ruff format --check .`. Si besoin : `uv run ruff check . --fix` puis `uv run ruff format .`.
-3. Ouvrir une PR vers `main` sur github: indiquer les données choisies, les transformations et les visualisations ; attendre la CI et une revue d'un autre membre avant le GO pour merger.
+3. Vérifier localement les pages modifiées, puis ouvrir une PR vers `main` sur GitHub : indiquer les données choisies, les transformations, les visualisations et les vérifications effectuées. Fusionner après revue d'un autre membre ; Render déploie ensuite automatiquement.
 
 Spécification commune pour l'équipe et les assistants IA : [AGENTS.md](.agents/AGENTS.md).

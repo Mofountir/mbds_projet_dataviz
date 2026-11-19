@@ -10,6 +10,7 @@ from mbds_projet_dataviz.domains.treemap.labels import (
     number,
     rate_comparison,
 )
+from mbds_projet_dataviz.shared.filters import selected_dataset
 
 PLOT_CONFIG = {"displayModeBar": False, "displaylogo": False}
 
@@ -28,7 +29,9 @@ def rate_metric(label: str, value: float, reference: float, help_text: str) -> N
     st.metric(label, f"{number(value, 1)} %", help=help_text)
     text, tone = rate_comparison(value, reference)
     st.markdown(
-        f'<div class="metric-comparison {tone}">{text}</div>', unsafe_allow_html=True
+        f'<div class="metric-comparison {tone}" '
+        f'title="Écart en points de pourcentage par rapport à la moyenne Olist">{text}</div>',
+        unsafe_allow_html=True,
     )
 
 
@@ -70,9 +73,7 @@ except FileNotFoundError:
         st.code("python -m mbds_projet_dataviz.domains.coordonnees.transforms")
     st.stop()
 
-dataset = st.sidebar.selectbox(
-    "Jeu de données", list(datasets.DATASETS), index=2, key="dataset"
-)
+dataset = selected_dataset()
 period = transforms.prepare_orders(transforms.filter_dataset(all_orders, dataset))
 if period.empty:
     st.title("Catégories")

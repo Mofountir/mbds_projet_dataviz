@@ -23,9 +23,9 @@ Créer `__init__.py` dans chaque nouveau sous-package de `domains/`. Utiliser de
 
 ## Contrat des données
 
-- `data/01_raw/` est un montage local en lecture seule via `LOCAL_STORAGE` : ne pas modifier ni commiter les CSV bruts.
+- Les CSV bruts sont locaux, dans `data/01_raw/`, dans le dossier indiqué par `LOCAL_STORAGE` ou dans celui passé au script de transformation : ne pas les modifier ni les commiter.
 - `data/02_intermediate/` sert aux résultats temporaires locaux ; son contenu n'est pas versionné.
-- `data/03_primary/` contient les données préparées nécessaires à l'application publiée. Le conteneur de production copie ce dossier, mais n'a pas accès au montage `data/01_raw/`.
+- `data/03_primary/` contient les données préparées nécessaires à l'application publiée. Le conteneur de production copie ce dossier, mais n'a pas accès aux CSV bruts locaux.
 - Garder dans le domaine le code permettant de refaire les transformations à partir des données brutes. Rendre explicites les clés de jointure, le niveau d'agrégation et la définition des indicateurs afin d'éviter les doubles comptes.
 - Ne pas commiter `.env`, identifiants, secrets ni chemins personnels. Utiliser des chemins relatifs au projet pour lire les données dans l'application.
 
@@ -38,8 +38,8 @@ Créer `__init__.py` dans chaque nouveau sous-package de `domains/`. Utiliser de
 
 ## Environnement et livraison
 
-- Travailler avec Python 3.13, `uv` et le Dev Container du dépôt. Les dépendances déclarées sont dans `pyproject.toml` et figées dans `uv.lock` ; mettre à jour les deux si une nouvelle dépendance est indispensable.
+- Travailler en local avec Python 3.13 et `uv`, sans devcontainer. Après clonage, exécuter `uv sync --locked --dev` et installer les hooks selon le README. Les dépendances déclarées sont dans `pyproject.toml` et figées dans `uv.lock` ; mettre à jour les deux si une nouvelle dépendance est indispensable.
 - Créer une branche `<num_issue>_<branch_name>` depuis `main`. Garder la PR centrée sur un domaine ; coordonner les changements de `main.py`, `pages/about.py` et `shared/` avec l'équipe.
-- Avant la PR, exécuter `uv run ruff check .` et `uv run ruff format --check .`, puis vérifier localement la page concernée. Les hooks dans `githooks/` et la CI contrôlent le lint, le format, les imports et le build Docker.
-- Dans la PR, résumer les sources, transformations, indicateurs, visualisations et vérifications effectuées. Fusionner vers `main` après CI réussie et revue d'un autre membre.
-- Ne modifier Docker, Dev Container, CI/CD ou Render que si la tâche le demande ou si leur changement est nécessaire à la fonctionnalité.
+- Avant la PR, exécuter `uv run ruff check .` et `uv run ruff format --check .`, puis vérifier localement la page concernée. Les hooks locaux dans `githooks/` contrôlent le lint, le format et les imports. Il n’y a plus de workflow GitHub Actions. Le dossier `tests/` reste vide en attendant la reprise des tests automatisés.
+- Dans la PR, résumer les sources, transformations, indicateurs, visualisations et vérifications effectuées. Fusionner vers `main` après vérifications locales et revue d'un autre membre. Render déploie automatiquement chaque nouveau commit de `main`.
+- Docker est réservé à la production : conserver `docker/Dockerfile.prod`, `.dockerignore` et `deploy/render.yaml`. Ne réintroduire un devcontainer, Docker Compose ou des workflows CI/CD que sur demande explicite.

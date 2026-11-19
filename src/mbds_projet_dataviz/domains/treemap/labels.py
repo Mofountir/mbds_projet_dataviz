@@ -96,17 +96,9 @@ def money(value: float) -> str:
 
 
 def rate_comparison(value: float, reference: float) -> tuple[str, str]:
-    """Écart en points de pourcentage, sans signe ou abréviation ambiguë."""
+    """Écart compact avec direction ; une hausse des mauvais avis est défavorable."""
     difference = value - reference
     if abs(difference) < 0.05:
-        return (
-            "Moins de 0,1 point de pourcentage d’écart avec la moyenne Olist",
-            "neutral",
-        )
-    points = "point" if abs(difference) < 2 else "points"
-    direction, tone = ("plus", "higher") if difference > 0 else ("moins", "lower")
-    return (
-        f"{number(abs(difference), 1)} {points} de pourcentage de {direction} "
-        "que la moyenne Olist",
-        tone,
-    )
+        return "0,0", "neutral"
+    arrow, tone = ("↑", "higher") if difference > 0 else ("↓", "lower")
+    return f"{arrow} {number(abs(difference), 1)}", tone
