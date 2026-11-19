@@ -307,8 +307,12 @@ def detail_parcoords(
     selected: pd.Series,
     filters: dict[str, tuple[float, float]],
     columns: list[str],
+    opacity: float = 1.0,
 ) -> go.Figure:
-    """Détail : une ligne par commande. Hors sélection = gris clair."""
+    """Détail : une ligne par commande. Hors sélection = gris clair.
+
+    ``opacity`` (0 à 1) éclaircit toutes les lignes colorées, pour une vue chargée.
+    """
     fig = _axes_figure(columns, DETAIL_AXES, 520)
     rest = orders[~selected]
     if len(rest):
@@ -341,7 +345,7 @@ def detail_parcoords(
                 y=ys,
                 mode="lines",
                 line={"color": color, "width": 0.8},
-                opacity=0.35 if color == GRAY else 0.6,
+                opacity=(0.35 if color == GRAY else 0.6) * opacity,
                 name=name,
                 hovertext=_order_hover(group, len(columns)),
                 hovertemplate="%{hovertext}<extra></extra>",

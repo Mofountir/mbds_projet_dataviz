@@ -4,8 +4,9 @@
   avec la page carte).
 - Quand ? : série temporelle et détail Black Friday (sections partagées avec la
   page temps).
-- Quel effet ? et Quelles catégories ? : les pages 3 et 4 complètes, exécutées
-  telles quelles dans cette page (toute modification de ces pages s'y retrouve).
+- Quel effet ? : version courte de la page 3 (domains/coordonnees/sections.py).
+- Quelles catégories ? : la page 4 complète, exécutée telle quelle dans cette
+  page (toute modification de la page 4 s'y retrouve).
 
 Tout suit le filtre global « Jeu de données ».
 """
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from mbds_projet_dataviz.domains.coordonnees import sections as effect_sections
 from mbds_projet_dataviz.domains.coordonnees import transforms as effect
 from mbds_projet_dataviz.domains.livraison import charts as delivery_charts
 from mbds_projet_dataviz.domains.livraison import datasets as delivery_data
@@ -155,7 +157,12 @@ else:
 
 # 3. Quel effet ? -----------------------------------------------------------------
 section("3. Les retards font-ils baisser les notes ?", "2 min")
-embed_page("coordonnees")
+key_message(effect_sections.scenario(reviewed))
+st.page_link(
+    f"{PAGES_DIR}/coordonnees.py",
+    label="Version complète : vue d'ensemble par catégorie et curseurs",
+    icon="⭐",
+)
 
 # 4. Quelles catégories ? ---------------------------------------------------------
 section("4. Quelles catégories sont les plus touchées ?", "2 min")
