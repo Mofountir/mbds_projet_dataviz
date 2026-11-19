@@ -17,6 +17,12 @@ PAGES = {
         st.Page(
             f"{PAGES_DIR}/about.py", title="Accueil", url_path="accueil", default=True
         ),
+        # Présentation orale : les 4 questions en une page (10 minutes)
+        st.Page(
+            f"{PAGES_DIR}/scenario.py",
+            title="Scénario en 10 minutes",
+            url_path="scenario",
+        ),
     ],
     "L'histoire en 4 étapes": [
         # Membre 1 : carte du Brésil
