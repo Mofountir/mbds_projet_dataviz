@@ -2,7 +2,8 @@
 
 - Où ? : vue d'ensemble, détail par État et écart au Sudeste (sections partagées
   avec la page carte).
-- Quand ? : en attente.
+- Quand ? : série temporelle et détail Black Friday (sections partagées avec la
+  page temps).
 - Quel effet ? et Quelles catégories ? : les pages 3 et 4 complètes, exécutées
   telles quelles dans cette page (toute modification de ces pages s'y retrouve).
 
@@ -21,6 +22,8 @@ from mbds_projet_dataviz.domains.livraison import sections as delivery_sections
 from mbds_projet_dataviz.domains.livraison import transforms as delivery
 from mbds_projet_dataviz.domains.livraison.transforms import format_number
 from mbds_projet_dataviz.domains.livraison.transforms import format_value as fmt
+from mbds_projet_dataviz.domains.temps import datasets as time_data
+from mbds_projet_dataviz.domains.temps import sections as time_sections
 from mbds_projet_dataviz.shared.data import missing_data_message
 from mbds_projet_dataviz.shared.datasets import load_orders
 from mbds_projet_dataviz.shared.filters import selected_dataset
@@ -136,12 +139,19 @@ else:
 
 # 2. Quand ? ----------------------------------------------------------------------
 section("2. Quand les retards apparaissent-ils ?", "2 min")
-st.info(
-    "**Section en attente.** Série temporelle des commandes et des retards "
-    "(pic du Black Friday 2017). Contenu à intégrer depuis la page 2 ou à "
-    "construire ici.",
-    icon="🚧",
-)
+all_orders = time_data.load_orders()
+if all_orders is None:
+    missing_data_message("orders")
+else:
+    all_orders = filter_dataset(all_orders, dataset)
+    time_sections.overview(all_orders, dataset, "scenario_frequency")
+    time_sections.detail(all_orders)
+    result = time_sections.answer(all_orders)
+    if result is None:
+        st.info("Black Friday 2017 n'est pas dans ce jeu de données.")
+    else:
+        verdict, paragraphs = result
+        key_message(f"**{verdict}.** " + " ".join(paragraphs))
 
 # 3. Quel effet ? -----------------------------------------------------------------
 section("3. Les retards font-ils baisser les notes ?", "2 min")
