@@ -1,34 +1,36 @@
-"""Scénario de présentation : les 4 questions en une page, à dérouler en 10 minutes.
+"""Scénario de présentation : les 4 questions enchaînées sur une seule page.
 
-Version allégée des pages détaillées : un graphique et un message par question.
-Les calculs et les graphiques viennent des domaines (mêmes chiffres que les pages
-complètes) et suivent le filtre global « Jeu de données ».
+- Où ? : vue d'ensemble, détail par État et écart au Sudeste (sections partagées
+  avec la page carte).
+- Quand ? : en attente.
+- Quel effet ? et Quelles catégories ? : les pages 3 et 4 complètes, exécutées
+  telles quelles dans cette page (toute modification de ces pages s'y retrouve).
+
+Tout suit le filtre global « Jeu de données ».
 """
 
-import pandas as pd
+import runpy
+from pathlib import Path
+
 import streamlit as st
 
-from mbds_projet_dataviz.domains.coordonnees import charts as effect_charts
 from mbds_projet_dataviz.domains.coordonnees import transforms as effect
 from mbds_projet_dataviz.domains.livraison import charts as delivery_charts
 from mbds_projet_dataviz.domains.livraison import datasets as delivery_data
+from mbds_projet_dataviz.domains.livraison import sections as delivery_sections
 from mbds_projet_dataviz.domains.livraison import transforms as delivery
 from mbds_projet_dataviz.domains.livraison.transforms import format_number
 from mbds_projet_dataviz.domains.livraison.transforms import format_value as fmt
-from mbds_projet_dataviz.domains.treemap import charts as category_charts
-from mbds_projet_dataviz.domains.treemap import transforms as categories
-from mbds_projet_dataviz.domains.treemap.labels import category_label
 from mbds_projet_dataviz.shared.data import missing_data_message
 from mbds_projet_dataviz.shared.datasets import load_orders
 from mbds_projet_dataviz.shared.filters import selected_dataset
 from mbds_projet_dataviz.shared.transforms import filter_dataset
 
 PAGES_DIR = "src/mbds_projet_dataviz/pages"
-# Même seuil que la page 4 par défaut : moins de commandes = taux instables.
-MIN_CATEGORY_ORDERS = 30
-TOP_CATEGORIES = 3
-# Écart de taux de retard (points) au-delà duquel la livraison est mise en cause.
-LATE_GAP_POINTS = 2
+PAGES_PATH = Path(__file__).parent
+# Clés propres au scénario : la page carte garde sa propre sélection d'État.
+STATE_KEY = "scenario_state"
+MAP_KEY = "scenario_map"
 
 
 def section(title: str, minutes: str) -> None:
@@ -42,17 +44,24 @@ def key_message(text: str) -> None:
     st.success(text, icon="💡")
 
 
-def spread(table: pd.DataFrame) -> float:
-    """Écart (points de %) d'avis 1-2 entre le 1er et le dernier cinquième."""
-    return table["bad_rate"].iloc[-1] - table["bad_rate"].iloc[0]
+def embed_page(name: str) -> None:
+    """Exécute une page détaillée ici, sans la copier."""
+    runpy.run_path(str(PAGES_PATH / f"{name}.py"))
 
 
 dataset = selected_dataset()
 
 delivered = delivery_data.load_delivered_orders()
+sellers = delivery_data.load_sellers()
 geojson = delivery_data.load_states_geojson()
 if delivered is None:
     missing_data_message("orders")
+    st.stop()
+if sellers is None:
+    missing_data_message("sellers")
+    st.stop()
+if geojson is None:
+    st.error("`data/03_primary/brazil_states.geojson` est introuvable.")
     st.stop()
 try:
     reviewed = load_orders()
@@ -88,29 +97,24 @@ kpi[3].metric(
 # 1. Où ? -------------------------------------------------------------------------
 section("1. Où les livraisons sont-elles lentes ?", "3 min")
 states = delivery.state_metrics(delivered)
-map_col, distance_col = st.columns([1, 1])
-with map_col:
-    st.markdown("**Délai médian par État du client**")
-    if geojson is None:
-        st.error("`data/03_primary/brazil_states.geojson` est introuvable.")
-    else:
-        st.plotly_chart(
-            delivery_charts.state_choropleth(states, geojson, "median_days"),
-            width="stretch",
-        )
-with distance_col:
-    st.markdown("**À distance égale du vendeur, l'écart se réduit**")
-    st.plotly_chart(
-        delivery_charts.delivery_by_distance_chart(
-            delivery.delivery_by_distance(delivered)
-        ),
-        width="stretch",
-    )
-    st.caption("Délai médian par tranche de distance client - vendeur.")
+regions = delivery.region_metrics(delivered)
+delivery_sections.overview(
+    states, regions, sellers, geojson, "median_days", dataset, MAP_KEY, STATE_KEY
+)
+delivery_sections.state_detail(
+    delivered, states, sellers, geojson, STATE_KEY, with_tables=False
+)
 
 intervals = delivery.region_intervals(delivered).set_index("region")
 gaps = delivery.region_gaps(delivered)
-day_gaps = gaps[gaps["indicator"] == "median_days"].set_index("region")
+day_gaps = gaps[gaps["indicator"] == "median_days"]
+st.subheader("Écart de délai au Sudeste, brut et à distance égale")
+st.plotly_chart(delivery_charts.region_gaps_chart(day_gaps, "jours"), width="stretch")
+st.caption(
+    "Régression du délai sur la région, sans puis avec la tranche de distance au "
+    "vendeur. La barre foncée est l'écart qui reste à distance égale."
+)
+day_gaps = day_gaps.set_index("region")
 compared = ["Norte", "Nordeste"]
 reference = delivery.REFERENCE_REGION
 if all(r in intervals.index and r in day_gaps.index for r in compared) and (
@@ -141,79 +145,11 @@ st.info(
 
 # 3. Quel effet ? -----------------------------------------------------------------
 section("3. Les retards font-ils baisser les notes ?", "2 min")
-late_col, on_time_col, _ = st.columns([1, 1, 2])
-late_col.metric(
-    "Avis 1-2 si livré en retard",
-    f"{format_number(numbers['bad_rate_late'], '{:.0f}')} %",
-)
-on_time_col.metric(
-    "Avis 1-2 si livré à l'heure",
-    f"{format_number(numbers['bad_rate_on_time'], '{:.0f}')} %",
-)
-quintiles = {
-    "Délai de livraison": ("j", effect.bad_rate_by_quintile(reviewed, "delivery_days")),
-    "Prix": ("R$", effect.bad_rate_by_quintile(reviewed, "price")),
-    "Frais de port": ("R$", effect.bad_rate_by_quintile(reviewed, "freight")),
-}
-st.plotly_chart(effect_charts.quintile_small_multiples(quintiles), width="stretch")
-st.caption(
-    "Part d'avis à 1 ou 2 étoiles dans chaque cinquième des commandes, du plus "
-    "petit (Q1) au plus grand (Q5)."
-)
-spreads = {name: spread(table) for name, (_, table) in quintiles.items()}
-key_message(
-    f"Livrée en retard, une commande reçoit un avis 1-2 dans "
-    f"**{format_number(numbers['bad_rate_late'], '{:.0f}')} %** des cas, contre "
-    f"**{format_number(numbers['bad_rate_on_time'], '{:.0f}')} %** à l'heure. Des "
-    "commandes les plus rapides aux plus lentes, la part d'avis négatifs varie de "
-    f"**{format_number(spreads['Délai de livraison'], '{:+.0f}')} points**, contre "
-    f"{format_number(spreads['Prix'], '{:+.0f}')} pour le prix et "
-    f"{format_number(spreads['Frais de port'], '{:+.0f}')} pour les frais de port : "
-    "c'est le délai qui pèse, pas le prix."
-)
+embed_page("coordonnees")
 
 # 4. Quelles catégories ? ---------------------------------------------------------
 section("4. Quelles catégories sont les plus touchées ?", "2 min")
-prepared = categories.filter_scope(
-    categories.prepare_orders(reviewed), "Tous les groupes", MIN_CATEGORY_ORDERS
-)
-st.markdown(
-    "**Ventes par famille et catégorie** · taille = ventes, couleur = part d'avis "
-    "négatifs"
-)
-st.plotly_chart(
-    category_charts.overview_treemap(categories.hierarchy(prepared), "bad_rate"),
-    width="stretch",
-)
-baseline = categories.key_numbers(prepared)
-summary = categories.summarize(prepared, ["group", "category"])
-top = categories.priorities(summary, baseline["bad_rate"]).head(TOP_CATEGORIES)
-if not top.empty:
-    names = [
-        f"**{category_label(row.category)}** "
-        f"({format_number(row.bad_orders)} avis négatifs, "
-        f"{format_number(row.late_rate, '{:.0f}')} % de retards)"
-        for row in top.itertuples()
-    ]
-    late_gap = (top["late_rate"] * top["orders"]).sum() / top["orders"].sum() - (
-        baseline["late_rate"]
-    )
-    if late_gap > LATE_GAP_POINTS:
-        cause = (
-            "Elles sont aussi plus souvent livrées en retard que la moyenne : la "
-            "livraison est un levier direct."
-        )
-    else:
-        cause = (
-            "Leur taux de retard est proche de la moyenne "
-            f"({format_number(baseline['late_rate'], '{:.0f}')} %) : la livraison "
-            "n'explique pas tout, le produit lui-même est à examiner."
-        )
-    key_message(
-        "Au-dessus de la moyenne Olist "
-        f"({format_number(baseline['bad_rate'], '{:.1f}')} % d'avis négatifs), les "
-        f"catégories qui en comptent le plus : {', '.join(names)}. {cause}"
-    )
+embed_page("treemap")
 
 # Conclusion ----------------------------------------------------------------------
 section("Ce qu'il faut retenir", "30 s")
